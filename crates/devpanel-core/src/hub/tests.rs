@@ -64,6 +64,8 @@ impl Git for FakeGit {
 struct FakeFs {
     files: Vec<String>,
     repos_under: Vec<PathBuf>,
+    /// Path → list, for read_repo_list; write_repo_list records here too.
+    stored: Mutex<HashMap<PathBuf, RepoList>>,
 }
 
 impl FileSystem for FakeFs {
@@ -84,6 +86,18 @@ impl FileSystem for FakeFs {
     }
     fn find_repos(&self, _: &Path, _: u32) -> Vec<PathBuf> {
         self.repos_under.clone()
+    }
+    fn read_repo_list(&self, path: &Path) -> HubResult<RepoList> {
+        self.stored
+            .lock()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .ok_or_else(|| HubError::Storage(format!("no such file {}", path.display())))
+    }
+    fn write_repo_list(&self, path: &Path, list: &RepoList) -> HubResult<()> {
+        self.stored.lock().unwrap().insert(path.to_path_buf(), list.clone());
+        Ok(())
     }
 }
 
@@ -132,6 +146,7 @@ struct Fixture {
     launcher: Arc<FakeLauncher>,
     shell: Arc<FakeShell>,
     store: Arc<FakeStore>,
+    fs: Arc<FakeFs>,
 }
 
 fn fixture_with(git: FakeGit, fs: FakeFs, store: FakeStore) -> Fixture {
@@ -139,14 +154,15 @@ fn fixture_with(git: FakeGit, fs: FakeFs, store: FakeStore) -> Fixture {
     let launcher = Arc::new(FakeLauncher::default());
     let shell = Arc::new(FakeShell::default());
     let store = Arc::new(store);
+    let fs = Arc::new(fs);
     let ports = Ports {
         git: git.clone(),
         shell: shell.clone(),
         launcher: launcher.clone(),
-        fs: Arc::new(fs),
+        fs: fs.clone(),
         store: store.clone(),
     };
-    Fixture { hub: Hub::open(ports, Platform::Unix).unwrap(), git, launcher, shell, store }
+    Fixture { hub: Hub::open(ports, Platform::Unix).unwrap(), git, launcher, shell, store, fs }
 }
 
 fn fixture(git: FakeGit) -> Fixture {
@@ -283,4 +299,101 @@ fn tools_without_names_are_refused() {
     let f = fixture(FakeGit::default());
     let tool = Tool { id: ToolId("x".into()), name: " ".into(), launch: Launch::FileManager };
     assert!(f.hub.save_tools(vec![tool]).is_err());
+}
+
+#[test]
+fn favouriting_persists_the_mark() {
+    let git = FakeGit::default().with_repo("/home/u/a", Some("https://x/a.git"));
+    let f = fixture(git);
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    assert!(!repo.favorite);
+    let marked = f.hub.set_favorite(&repo.id, true).unwrap();
+    assert!(marked.favorite);
+    assert!(f.store.saved.lock().unwrap().as_ref().unwrap().repos[0].favorite);
+    f.hub.set_favorite(&repo.id, false).unwrap();
+    assert!(!f.store.saved.lock().unwrap().as_ref().unwrap().repos[0].favorite);
+}
+
+#[test]
+fn export_captures_every_repository_without_local_paths() {
+    let git = FakeGit::default().with_repo("/home/u/a", Some("https://x/a.git"));
+    let f = fixture(git);
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    f.hub.set_favorite(&repo.id, true).unwrap();
+    let path = f.hub.export_repos(Path::new("~/backup")).unwrap();
+    assert_eq!(path, Path::new("/home/u/backup/devpanel-repos.json"));
+    let stored = f.fs.stored.lock().unwrap();
+    let list = stored.get(&path).unwrap();
+    assert_eq!(list.version, RepoList::VERSION);
+    assert_eq!(list.repos.len(), 1);
+    assert_eq!(list.repos[0].name, "a");
+    assert_eq!(list.repos[0].remote.as_deref(), Some("https://x/a.git"));
+    assert!(list.repos[0].favorite);
+}
+
+#[test]
+fn exporting_an_empty_workspace_is_refused() {
+    let f = fixture(FakeGit::default());
+    assert!(matches!(f.hub.export_repos(Path::new("~/backup")), Err(HubError::Invalid(_))));
+}
+
+#[test]
+fn import_clones_each_listed_repository_and_restores_its_marks() {
+    let f = fixture(FakeGit::default());
+    let list = RepoList {
+        version: RepoList::VERSION,
+        repos: vec![
+            RepoExport {
+                name: "bones".into(),
+                remote: Some("https://x/bones.git".into()),
+                group: Some("engine".into()),
+                install_command: Some("just build".into()),
+                favorite: true,
+            },
+            RepoExport { name: "nolocal".into(), remote: None, group: None, install_command: None, favorite: false },
+        ],
+    };
+    f.fs.stored.lock().unwrap().insert(PathBuf::from("/home/u/backup/devpanel-repos.json"), list);
+    let cloned = f.hub.import_repos(Path::new("~/backup"), None, &Silent).unwrap();
+    // The entry without a remote cannot be cloned and is reported, not tracked.
+    assert_eq!(cloned, 1);
+    let repos = f.hub.workspace().repos;
+    assert_eq!(repos.len(), 1);
+    assert_eq!(repos[0].name, "bones");
+    let dest = Path::new("/home/u").join("Code").join("bones");
+    assert_eq!(repos[0].path, dest);
+    assert_eq!(repos[0].group.as_deref(), Some("engine"));
+    assert_eq!(repos[0].install_command.as_deref(), Some("just build"));
+    assert!(repos[0].favorite);
+    assert_eq!(f.git.calls(), [format!("clone https://x/bones.git {}", dest.display())]);
+}
+
+#[test]
+fn import_skips_repositories_already_tracked() {
+    let git = FakeGit::default().with_repo("/home/u/Code/bones", Some("https://x/bones.git"));
+    let fs = FakeFs::default();
+    let f = fixture_with(git, fs, FakeStore::default());
+    f.hub.add_existing(Path::new("/home/u/Code/bones")).unwrap();
+    let list = RepoList {
+        version: RepoList::VERSION,
+        repos: vec![RepoExport {
+            name: "bones".into(),
+            remote: Some("https://x/bones.git".into()),
+            group: None,
+            install_command: None,
+            favorite: false,
+        }],
+    };
+    f.fs.stored.lock().unwrap().insert(PathBuf::from("/home/u/backup/devpanel-repos.json"), list);
+    let cloned = f.hub.import_repos(Path::new("~/backup"), None, &Silent).unwrap();
+    assert_eq!(cloned, 0);
+    assert_eq!(f.hub.workspace().repos.len(), 1);
+}
+
+#[test]
+fn import_rejects_a_newer_format() {
+    let f = fixture(FakeGit::default());
+    let list = RepoList { version: RepoList::VERSION + 1, repos: vec![] };
+    f.fs.stored.lock().unwrap().insert(PathBuf::from("/home/u/backup/devpanel-repos.json"), list);
+    assert!(matches!(f.hub.import_repos(Path::new("~/backup"), None, &Silent), Err(HubError::Invalid(_))));
 }

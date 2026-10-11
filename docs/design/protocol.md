@@ -32,6 +32,9 @@ sequenceDiagram
 | `clone` | `url`, `parent?` | Clones into `parent` or the clone folder, as a job |
 | `remove` | `repo` | Stops tracking; files stay on disk |
 | `edit` | `repo`, `name`, `group?`, `install_command?` | Updates a repository's settings |
+| `favorite` | `repo`, `favorite` | Pins a repository as a favourite, or clears the mark |
+| `export` | `folder` | Writes a portable repository list (`devpanel-repos.json`) into `folder` |
+| `import` | `folder`, `dest?` | Reads the list in `folder` and clones every repository into `dest` or the clone folder, as a job |
 | `install-recipes` | `request`, `repo` | Answered with a `reply` holding the recipe list |
 | `run` | `repo`, `command`, `title?` | Runs a shell command in the repository, as a job |
 | `save-settings` | `settings` | Replaces the settings |

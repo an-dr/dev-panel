@@ -29,6 +29,49 @@ pub struct Repo {
     /// Overrides the detected install recipe when set. Run through the shell.
     #[serde(default)]
     pub install_command: Option<String>,
+    /// Pinned by the user as a main repository; shown first and in Favorites.
+    #[serde(default)]
+    pub favorite: bool,
+}
+
+/// A repository as it travels between machines: everything needed to clone it
+/// again and restore how the user had it, but nothing tied to this machine
+/// (no absolute path, no local id). See [`Repo`] for the tracked form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoExport {
+    pub name: String,
+    pub remote: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub install_command: Option<String>,
+    #[serde(default)]
+    pub favorite: bool,
+}
+
+impl From<&Repo> for RepoExport {
+    fn from(repo: &Repo) -> Self {
+        Self {
+            name: repo.name.clone(),
+            remote: repo.remote.clone(),
+            group: repo.group.clone(),
+            install_command: repo.install_command.clone(),
+            favorite: repo.favorite,
+        }
+    }
+}
+
+/// A portable repository list, written by an export and read by an import.
+/// `version` lets a later format be recognised and rejected cleanly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoList {
+    pub version: u32,
+    pub repos: Vec<RepoExport>,
+}
+
+impl RepoList {
+    /// The version an export writes and an import understands.
+    pub const VERSION: u32 = 1;
 }
 
 /// Derives a folder name from a clone URL:

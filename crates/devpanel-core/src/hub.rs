@@ -4,11 +4,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::domain::{
-    detect_install_recipes, repo_name_from_url, Fix, InstallRecipe, Platform, Repo, RepoId, RepoStatus, Settings,
-    Tool, ToolId, Workspace,
+    detect_install_recipes, repo_name_from_url, Fix, InstallRecipe, Platform, Repo, RepoExport, RepoId, RepoList,
+    RepoStatus, Settings, Tool, ToolId, Workspace,
 };
 use crate::ports::{FileSystem, Git, Launcher, Output, Shell, Store};
 use crate::{HubError, HubResult};
+
+/// Name of the file an export writes and an import reads, inside the folder
+/// the user chooses.
+pub const EXPORT_FILE: &str = "devpanel-repos.json";
 
 /// The adapters a [`Hub`] works through.
 #[derive(Clone)]
@@ -124,6 +128,105 @@ impl Hub {
             repo.install_command = non_empty(edit.install_command);
             Ok(repo.clone())
         })
+    }
+
+    /// Marks a repository as a favourite (a main one the user works with) or
+    /// clears the mark. Nothing git can report changes, so only the workspace
+    /// is touched.
+    pub fn set_favorite(&self, id: &RepoId, favorite: bool) -> HubResult<Repo> {
+        self.mutate(|ws| {
+            let repo = ws.repos.iter_mut().find(|r| &r.id == id).ok_or_else(|| not_found(id))?;
+            repo.favorite = favorite;
+            Ok(repo.clone())
+        })
+    }
+
+    // ---- transfer --------------------------------------------------------
+
+    /// Writes a portable list of every tracked repository to
+    /// `devpanel-repos.json` in `folder`, and returns the file's path. The
+    /// list carries each repository's remote, name, group and favourite mark,
+    /// but no machine-specific path, so it can be imported on another machine.
+    pub fn export_repos(&self, folder: &Path) -> HubResult<PathBuf> {
+        let folder = self.ports.fs.expand(folder);
+        let repos: Vec<RepoExport> = self.lock().repos.iter().map(RepoExport::from).collect();
+        if repos.is_empty() {
+            return Err(HubError::Invalid("there are no repositories to export".into()));
+        }
+        let list = RepoList { version: RepoList::VERSION, repos };
+        let path = folder.join(EXPORT_FILE);
+        self.ports.fs.write_repo_list(&path, &list)?;
+        Ok(path)
+    }
+
+    /// Reads `devpanel-repos.json` from `folder` and clones every repository
+    /// it lists into `dest` (the configured clone root when `None`), restoring
+    /// each one's name, group, install command and favourite mark. Entries
+    /// without a remote, or already tracked, are skipped; a single clone that
+    /// fails is reported and does not stop the rest. Returns how many were
+    /// newly cloned.
+    pub fn import_repos(&self, folder: &Path, dest: Option<&Path>, out: &dyn Output) -> HubResult<usize> {
+        let file = self.ports.fs.expand(folder).join(EXPORT_FILE);
+        let list = self.ports.fs.read_repo_list(&file)?;
+        if list.version > RepoList::VERSION {
+            return Err(HubError::Invalid(format!(
+                "{} was written by a newer DevPanel (format {}); update to import it",
+                file.display(),
+                list.version
+            )));
+        }
+        let dest = match dest {
+            Some(dest) => self.ports.fs.expand(dest),
+            None => self.ports.fs.expand(&self.lock().settings.clone_root),
+        };
+        out.line(&format!("{} repositories in the list", list.repos.len()));
+        let mut cloned = 0;
+        for entry in &list.repos {
+            match self.clone_from_export(entry, &dest, out) {
+                Ok(Some(repo)) => {
+                    out.line(&format!("  + {} ({})", repo.name, repo.path.display()));
+                    cloned += 1;
+                }
+                Ok(None) => out.line(&format!("  skip {} (already tracked)", entry.name)),
+                Err(error) => out.line(&format!("  ! {} — {error}", entry.name)),
+            }
+        }
+        out.line(&format!("cloned {cloned} of {}", list.repos.len()));
+        Ok(cloned)
+    }
+
+    /// Clones one exported entry into `parent` and tracks it, carrying over its
+    /// saved fields. `Ok(None)` means it was already tracked and left alone.
+    fn clone_from_export(&self, entry: &RepoExport, parent: &Path, out: &dyn Output) -> HubResult<Option<Repo>> {
+        let remote = entry.remote.as_deref().filter(|r| !r.trim().is_empty());
+        let remote = remote.ok_or_else(|| HubError::Invalid("it has no remote to clone from".into()))?;
+        let folder = repo_name_from_url(remote).unwrap_or_else(|| entry.name.clone());
+        let dest = parent.join(&folder);
+        if self.is_tracked(&dest) {
+            return Ok(None);
+        }
+        if self.ports.fs.exists(&dest) && !self.ports.fs.is_empty_dir(&dest) {
+            return Err(HubError::Invalid(format!("{} already exists and is not empty", dest.display())));
+        }
+        self.ports.git.clone_repo(remote, &dest, out)?;
+        let repo = self.mutate(|ws| {
+            if ws.repos.iter().any(|r| r.path == dest) {
+                return Err(HubError::Invalid("it is already tracked".into()));
+            }
+            let name = non_empty(Some(entry.name.clone())).unwrap_or(folder.clone());
+            let repo = Repo {
+                id: next_id(&ws.repos),
+                name,
+                path: dest.clone(),
+                remote: Some(remote.to_string()),
+                group: non_empty(entry.group.clone()),
+                install_command: non_empty(entry.install_command.clone()),
+                favorite: entry.favorite,
+            };
+            ws.repos.push(repo.clone());
+            Ok(repo)
+        })?;
+        Ok(Some(repo))
     }
 
     // ---- condition -------------------------------------------------------
@@ -286,7 +389,8 @@ impl Hub {
                 return Err(HubError::Invalid(format!("{} is already tracked", existing.name)));
             }
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "repository".into());
-            let repo = Repo { id: next_id(&ws.repos), name, path, remote, group: None, install_command: None };
+            let repo =
+                Repo { id: next_id(&ws.repos), name, path, remote, group: None, install_command: None, favorite: false };
             ws.repos.push(repo.clone());
             Ok(repo)
         })

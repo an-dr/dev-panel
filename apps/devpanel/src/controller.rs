@@ -111,22 +111,36 @@ impl Controller {
                 self.report(result);
             }
             Action::AddExisting { path } => {
-                let result = self.hub.add_existing(Path::new(path.trim()));
-                if let Ok(repo) = &result {
-                    self.emit(Event::info(format!("Added {}", repo.name)));
+                match self.hub.add_existing(Path::new(path.trim())) {
+                    Ok(repo) => {
+                        self.emit(Event::info(format!("Added {}", repo.name)));
+                        // Only the new repository's status is unknown; refresh
+                        // it alone rather than re-reading every tracked one.
+                        self.send_workspace();
+                        self.refresh(repo.id);
+                    }
+                    Err(error) => self.emit(Event::error(error.to_string())),
                 }
-                self.after_tracking_change(result.map(drop));
             }
             Action::Scan { path } => self.scan(path),
             Action::Clone { url, parent } => self.clone_repo(url, parent),
-            Action::Remove { repo } => {
-                let result = self.hub.remove(&repo);
-                self.after_tracking_change(result);
-            }
+            // Removing, editing and (un)favouriting change no repository's git
+            // status, so they resend the workspace without a status storm —
+            // which is what used to make the list flicker on every change.
+            Action::Remove { repo } => self.after_workspace_change(self.hub.remove(&repo)),
             Action::Edit { repo, name, group, install_command } => {
-                let result = self.hub.update_repo(&repo, RepoEdit { name, group, install_command });
-                self.after_tracking_change(result.map(drop));
+                self.after_workspace_change(self.hub.update_repo(&repo, RepoEdit { name, group, install_command }).map(drop));
             }
+            Action::Favorite { repo, favorite } => {
+                self.after_workspace_change(self.hub.set_favorite(&repo, favorite).map(drop));
+            }
+            Action::Export { folder } => {
+                match self.hub.export_repos(Path::new(folder.trim())) {
+                    Ok(path) => self.emit(Event::info(format!("Exported the repository list to {}", path.display()))),
+                    Err(error) => self.emit(Event::error(error.to_string())),
+                }
+            }
+            Action::Import { folder, dest } => self.import(folder, dest),
             Action::InstallRecipes { request, repo } => {
                 let reply = self.hub.install_recipes(&repo).and_then(|r| to_json(&r));
                 self.reply(request, reply);
@@ -139,11 +153,11 @@ impl Controller {
             }
             Action::SaveSettings { settings } => {
                 let result = self.hub.save_settings(settings);
-                self.after_config_change(result);
+                self.after_workspace_change(result);
             }
             Action::SaveTools { tools } => {
                 let result = self.hub.save_tools(tools);
-                self.after_config_change(result);
+                self.after_workspace_change(result);
             }
             // Desktop capabilities belong to the bones `os` module; the
             // dashboard module answers these before they reach here.
@@ -196,6 +210,13 @@ impl Controller {
         self.job(None, title, Afterwards::Workspace, Runner::OwnThread, move |hub, out| {
             let parent = parent.filter(|p| !p.trim().is_empty()).map(PathBuf::from);
             hub.clone_repo(&url, parent.as_deref(), out).map(drop)
+        });
+    }
+
+    fn import(&self, folder: String, dest: Option<String>) {
+        self.job(None, "Import repositories".into(), Afterwards::Workspace, Runner::OwnThread, move |hub, out| {
+            let dest = dest.filter(|d| !d.trim().is_empty()).map(PathBuf::from);
+            hub.import_repos(Path::new(folder.trim()), dest.as_deref(), out).map(drop)
         });
     }
 
@@ -309,17 +330,9 @@ impl Controller {
         }
     }
 
-    fn after_tracking_change(&self, result: HubResult<()>) {
-        match result {
-            Ok(()) => {
-                self.send_workspace();
-                self.refresh_all();
-            }
-            Err(error) => self.emit(Event::error(error.to_string())),
-        }
-    }
-
-    fn after_config_change(&self, result: HubResult<()>) {
+    /// The workspace changed but no repository's git status did: resend it and
+    /// stop, leaving the page's cached statuses in place.
+    fn after_workspace_change(&self, result: HubResult<()>) {
         match result {
             Ok(()) => self.send_workspace(),
             Err(error) => self.emit(Event::error(error.to_string())),

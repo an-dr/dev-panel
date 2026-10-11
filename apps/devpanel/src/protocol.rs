@@ -26,6 +26,13 @@ pub enum Action {
     Clone { url: String, parent: Option<String> },
     Remove { repo: RepoId },
     Edit { repo: RepoId, name: String, group: Option<String>, install_command: Option<String> },
+    /// Pins a repository as a favourite, or clears the mark.
+    Favorite { repo: RepoId, favorite: bool },
+    /// Writes a portable repository list into `folder`.
+    Export { folder: String },
+    /// Reads a repository list from `folder` and clones every repository it
+    /// lists into `dest` (the configured clone folder when absent).
+    Import { folder: String, dest: Option<String> },
     InstallRecipes { request: u64, repo: RepoId },
     /// Runs a shell command in the repository, e.g. an install recipe.
     Run { repo: RepoId, command: String, title: Option<String> },

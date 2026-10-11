@@ -75,6 +75,7 @@ mod tests {
             remote: Some("https://x".into()),
             group: Some("engine".into()),
             install_command: None,
+            favorite: false,
         });
         store.save(&workspace).unwrap();
         assert_eq!(store.load().unwrap(), workspace);

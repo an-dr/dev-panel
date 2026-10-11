@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
+use devpanel_core::domain::RepoList;
 use devpanel_core::ports::FileSystem;
+use devpanel_core::{HubError, HubResult};
 
 /// Folders never worth descending into while looking for repositories or
 /// install scripts: dependency caches and build output.
@@ -40,6 +42,22 @@ impl FileSystem for LocalFileSystem {
         collect_repos(root, depth, &mut repos);
         repos.sort();
         repos
+    }
+
+    fn read_repo_list(&self, path: &Path) -> HubResult<RepoList> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| HubError::Storage(format!("reading {}: {e}", path.display())))?;
+        serde_json::from_str(&text)
+            .map_err(|e| HubError::Invalid(format!("{} is not a DevPanel repository list: {e}", path.display())))
+    }
+
+    fn write_repo_list(&self, path: &Path, list: &RepoList) -> HubResult<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| HubError::Storage(format!("creating {}: {e}", parent.display())))?;
+        }
+        let text = serde_json::to_string_pretty(list).map_err(|e| HubError::Storage(e.to_string()))?;
+        std::fs::write(path, text).map_err(|e| HubError::Storage(format!("writing {}: {e}", path.display())))
     }
 }
 

@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::domain::{RepoStatus, Tool, Workspace};
+use crate::domain::{RepoList, RepoStatus, Tool, Workspace};
 use crate::HubResult;
 
 /// Receives the output of a long-running command line by line, so the user
@@ -55,6 +55,12 @@ pub trait FileSystem: Send + Sync {
     /// Working trees under `root` down to `depth` levels, `root` included.
     /// Does not descend into a repository once found.
     fn find_repos(&self, root: &Path, depth: u32) -> Vec<PathBuf>;
+    /// Reads an exported repository list from `path`, failing if the file is
+    /// missing or is not a valid list. The storage format is the adapter's
+    /// concern, not the core's.
+    fn read_repo_list(&self, path: &Path) -> HubResult<RepoList>;
+    /// Writes a repository list to `path`, creating parent folders as needed.
+    fn write_repo_list(&self, path: &Path, list: &RepoList) -> HubResult<()>;
 }
 
 pub trait Store: Send + Sync {

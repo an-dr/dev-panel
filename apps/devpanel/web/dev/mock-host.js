@@ -13,13 +13,13 @@
   ];
   const workspace = {
     repos: [
-      { id: 'r1', name: 'bones', path: '/home/me/Code/bones', remote: 'https://github.com/an-dr/bones.git', group: 'engine', install_command: null },
-      { id: 'r2', name: 'commits', path: '/home/me/Code/commits', remote: 'git@github.com:an-dr/commits.git', group: 'apps', install_command: null },
-      { id: 'r3', name: 'devpanel', path: '/home/me/Code/devpanel', remote: null, group: 'apps', install_command: null },
-      { id: 'r4', name: 'agents', path: '/home/me/Code/agents', remote: 'https://github.com/an-dr/agents.git', group: null, install_command: null },
-      { id: 'r5', name: 'microlog', path: '/home/me/Code/microlog', remote: 'https://github.com/an-dr/microlog.git', group: 'libs', install_command: null },
-      { id: 'r6', name: 'artificial-will-game-v2', path: '/home/me/Code/games/awg2', remote: 'https://github.com/an-dr/artificial-will-game-v2.git', group: 'games', install_command: null },
-      { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, install_command: null },
+      { id: 'r1', name: 'bones', path: '/home/me/Code/bones', remote: 'https://github.com/an-dr/bones.git', group: 'engine', install_command: null, favorite: true },
+      { id: 'r2', name: 'commits', path: '/home/me/Code/commits', remote: 'git@github.com:an-dr/commits.git', group: 'apps', install_command: null, favorite: false },
+      { id: 'r3', name: 'devpanel', path: '/home/me/Code/devpanel', remote: null, group: 'apps', install_command: null, favorite: true },
+      { id: 'r4', name: 'agents', path: '/home/me/Code/agents', remote: 'https://github.com/an-dr/agents.git', group: null, install_command: null, favorite: false },
+      { id: 'r5', name: 'microlog', path: '/home/me/Code/microlog', remote: 'https://github.com/an-dr/microlog.git', group: 'libs', install_command: null, favorite: false },
+      { id: 'r6', name: 'artificial-will-game-v2', path: '/home/me/Code/games/awg2', remote: 'https://github.com/an-dr/artificial-will-game-v2.git', group: 'games', install_command: null, favorite: false },
+      { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, install_command: null, favorite: false },
     ],
     tools,
     settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, scan_depth: 3, theme: 'system' },
@@ -96,7 +96,7 @@
     open: ({ repo, tool }) => emit([{ type: 'toast', level: 'info', message: `(preview) would open ${name(repo)} in ${tool || 'the default tool'}` }]),
     'add-existing': ({ path }) => {
       const id = `r${workspace.repos.length + 10}`;
-      workspace.repos.push({ id, name: path.split(/[\\/]/).pop(), path, remote: null, group: null, install_command: null });
+      workspace.repos.push({ id, name: path.split(/[\\/]/).pop(), path, remote: null, group: null, install_command: null, favorite: false });
       statuses[id] = { ...base, last_commit: commit('Initial commit', 1) };
       emit([{ type: 'toast', level: 'info', message: `Added ${path}` }, workspaceEvent(), statusEvent(id)]);
     },
@@ -104,6 +104,9 @@
     clone: ({ url }) => runJob(null, `Clone ${url.split('/').pop().replace(/\.git$/, '')}`, ['$ git clone --progress ' + url, 'Cloning into …', 'Receiving objects:  45%', 'Receiving objects: 100% (812/812)', 'Resolving deltas: 100%'], () => handlers['add-existing']({ path: `~/Code/${url.split('/').pop().replace(/\.git$/, '')}` })),
     remove: ({ repo }) => { workspace.repos = workspace.repos.filter((r) => r.id !== repo); emit([workspaceEvent()]); },
     edit: ({ repo, name, group, install_command }) => { Object.assign(workspace.repos.find((r) => r.id === repo), { name, group: group || null, install_command: install_command || null }); emit([workspaceEvent()]); },
+    favorite: ({ repo, favorite }) => { workspace.repos.find((r) => r.id === repo).favorite = favorite; emit([workspaceEvent()]); },
+    export: ({ folder }) => emit([{ type: 'toast', level: 'info', message: `(preview) would write devpanel-repos.json to ${folder}` }]),
+    import: ({ folder }) => runJob(null, 'Import repositories', [`${folder}/devpanel-repos.json`, '2 repositories in the list', '  + example (~/Code/example)', '  skip bones (already tracked)', 'cloned 1 of 2'], () => emit([workspaceEvent()])),
     'install-recipes': ({ request }) => emit([{ type: 'reply', request, ok: true, error: null, data: [
       { label: 'install.ps1', command: 'pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1', source: 'install.ps1' },
       { label: 'cargo install', command: 'cargo install --path .', source: 'Cargo.toml' },

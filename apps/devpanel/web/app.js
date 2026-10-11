@@ -57,6 +57,7 @@ const state = {
   layout: load('layout', 'grid'),
   filter: 'all',
   group: null,
+  favoritesOnly: false,
   sort: load('sort', 'attention'),
   search: '',
   selected: null,
@@ -251,11 +252,16 @@ function groups() {
 
 function renderSidebar() {
   const c = counts();
+  const favorites = state.workspace.repos.filter((r) => r.favorite).length;
   const nav = (view, iconName, label, count, alert) => `
-    <button class="nav-item ${state.view === view && (view !== 'repos' || state.group === null) ? 'active' : ''}" data-action="nav" data-view="${view}">
+    <button class="nav-item ${state.view === view && (view !== 'repos' || (state.group === null && !state.favoritesOnly)) ? 'active' : ''}" data-action="nav" data-view="${view}">
       ${icon(iconName)}<span class="label">${label}</span>
       ${count ? `<span class="count ${alert ? 'alert' : ''}">${count}</span>` : ''}
     </button>`;
+  const favoritesNav = favorites ? `
+    <button class="nav-item ${state.view === 'repos' && state.favoritesOnly ? 'active' : ''}" data-action="favorites">
+      ${icon('star')}<span class="label">Favorites</span><span class="count">${favorites}</span>
+    </button>` : '';
   const groupItems = groups().filter(([g]) => g).map(([group, n]) => `
     <button class="nav-item ${state.view === 'repos' && state.group === group ? 'active' : ''}" data-action="group" data-group="${esc(group)}">
       ${icon('layers')}<span class="label truncate">${esc(group)}</span><span class="count">${n}</span>
@@ -269,6 +275,7 @@ function renderSidebar() {
       <div><div class="brand-name">DevPanel</div><div class="brand-sub">Your repositories</div></div>
     </div>
     ${nav('overview', 'home', 'Overview', c.attention, true)}
+    ${favoritesNav}
     ${nav('repos', 'repo', 'Repositories', c.total)}
     ${nav('activity', 'activity', 'Activity', c.running)}
     ${nav('settings', 'settings', 'Settings')}
@@ -282,7 +289,7 @@ function renderTitle() {
   const c = counts();
   const titles = {
     overview: ['Overview', state.ready ? `${plural(c.total, 'repository', 'repositories')} · ${c.attention ? `${c.attention} need attention` : 'all clean'}` : ''],
-    repos: [state.group ?? 'Repositories', plural(visibleRepos().length, 'repository', 'repositories')],
+    repos: [state.favoritesOnly ? 'Favorites' : state.group ?? 'Repositories', plural(visibleRepos().length, 'repository', 'repositories')],
     activity: ['Activity', c.running ? `${plural(c.running, 'job')} running` : 'Output of everything DevPanel ran'],
     settings: ['Settings', 'Tools, folders and behaviour'],
   };
@@ -302,6 +309,7 @@ const VIEWS = {
         <span class="stat-icon">${icon(iconName)}</span>
         <span class="value">${value}</span><span class="label">${label}</span>
       </div>`;
+    const favorites = sortRepos(state.workspace.repos.filter((r) => r.favorite), 'attention');
     const attention = sortRepos(state.workspace.repos.filter((r) => {
       const e = state.statuses.get(r.id);
       return e && e.health !== 'clean';
@@ -315,6 +323,7 @@ const VIEWS = {
         ${stat(c.behind, 'Behind remote', 'arrowDown', c.behind ? 'info' : 'ok', 'behind')}
         ${stat(c.ahead, 'Unpushed', 'arrowUp', c.ahead ? 'info' : 'ok', 'ahead')}
       </div>
+      ${favorites.length ? `<div class="section-head"><h2>Favorites</h2><span class="muted">The repositories you pinned</span></div><div class="cards">${favorites.map(card).join('')}</div>` : ''}
       <div class="section-head"><h2>Needs attention</h2><span class="muted">${attention.length ? 'Fix with one click, or open in your tool' : ''}</span></div>
       ${attention.length ? `<div class="cards">${attention.map(card).join('')}</div>`
         : `<div class="panel" style="display:flex;gap:12px;align-items:center">${badge(HEALTH.clean, 'All clean')}<span class="muted">Every repository is committed, pushed and up to date with what was last fetched.</span></div>`}
@@ -391,7 +400,14 @@ const VIEWS = {
           <span class="spacer"></span>
           <button class="btn primary" type="submit">${icon('check')}Save tools</button>
         </div>
-      </form>`;
+      </form>
+      <div class="panel">
+        <h2>Transfer</h2><p>Move your repository list to another machine. Export writes a small JSON file; import reads it and clones every repository into a folder you choose.</p>
+        <div class="panel-actions">
+          <button type="button" class="btn" data-action="export-repos">${icon('download')}Export list…</button>
+          <button type="button" class="btn" data-action="import-repos">${icon('upload')}Import &amp; clone…</button>
+        </div>
+      </div>`;
   },
 };
 
@@ -418,21 +434,25 @@ function passes(repo, filter) {
 function visibleRepos() {
   const filter = FILTERS.find((f) => f.id === state.filter) || FILTERS[0];
   const q = state.search.trim().toLowerCase();
-  const repos = state.workspace.repos.filter((repo) => inGroup(repo) && passes(repo, filter) && (!q || [
+  const repos = state.workspace.repos.filter((repo) => (!state.favoritesOnly || repo.favorite) && inGroup(repo) && passes(repo, filter) && (!q || [
     repo.name, repo.path, repo.group, repo.remote, state.statuses.get(repo.id)?.status.branch,
   ].some((v) => v && String(v).toLowerCase().includes(q))));
-  return sortRepos(repos, state.sort);
+  return sortRepos(repos, state.sort, true);
 }
-function sortRepos(repos, by) {
+// `favFirst` floats pinned repositories to the top of the main list; the
+// overview's own sections (attention, recent) pass it off so their order means
+// only what their heading says.
+function sortRepos(repos, by, favFirst = false) {
   const time = (r) => state.statuses.get(r.id)?.status.last_commit?.time || 0;
   const rank = (r) => { const e = state.statuses.get(r.id); return e ? HEALTH_ORDER.indexOf(e.health) : 99; };
   const byName = (a, b) => a.name.localeCompare(b.name);
-  const sorters = {
+  const within = {
     name: byName,
     recent: (a, b) => time(b) - time(a) || byName(a, b),
     attention: (a, b) => rank(a) - rank(b) || byName(a, b),
-  };
-  return [...repos].sort(sorters[by] || byName);
+  }[by] || byName;
+  const sorter = favFirst ? (a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || within(a, b) : within;
+  return [...repos].sort(sorter);
 }
 
 function statusSummary(s) {
@@ -446,6 +466,10 @@ function statusSummary(s) {
   if (n) parts.push(`<span class="counter changes" title="${s.staged} staged, ${s.unstaged} modified, ${s.untracked} untracked">${icon('edit')}${n}</span>`);
   if (s.stashes) parts.push(`<span class="chip" title="Stashed change sets">${icon('archive')}${s.stashes}</span>`);
   return parts.join('');
+}
+
+function favStar(repo) {
+  return `<button class="btn sm ghost icon-only star ${repo.favorite ? 'on' : ''}" data-action="favorite" data-repo="${esc(repo.id)}" title="${repo.favorite ? 'Remove from favorites' : 'Mark as favorite'}" aria-pressed="${repo.favorite}">${icon('star')}</button>`;
 }
 
 function openButton(repo, size = 'sm') {
@@ -485,6 +509,7 @@ function card(repo) {
           <div class="path mono truncate" title="${esc(repo.path)}">${esc(shortPath(repo.path))}</div>
         </div>
         ${badge(meta, headline)}
+        ${favStar(repo)}
         <button class="btn sm ghost icon-only more" data-action="repo-menu" data-repo="${esc(repo.id)}" title="More actions">${icon('more')}</button>
       </div>
       <div class="meta">${statusSummary(s)}</div>
@@ -509,6 +534,7 @@ function row(repo) {
       <div>${job ? `<span class="job-line"><span class="spinner"></span>${esc(job.title.split(' ')[0])}</span>` : badge(healthOf(repo))}</div>
       <div class="muted truncate" style="font-size:12.5px">${s?.last_commit ? `${esc(s.last_commit.subject)} · ${esc(ago(s.last_commit.time))}` : ''}</div>
       <div class="card-actions" style="flex-wrap:nowrap">${job ? '' : fixButtons(repo, entry, 1)}${openButton(repo)}
+        ${favStar(repo)}
         <button class="btn sm ghost icon-only" data-action="repo-menu" data-repo="${esc(repo.id)}">${icon('more')}</button></div>
       ${job ? '<div class="progress" style="position:absolute;left:0;right:0;bottom:0"></div>' : ''}
     </div>`;
@@ -595,6 +621,7 @@ function renderDrawer() {
         <div class="mono muted truncate" title="${esc(repo.path)}">${esc(repo.path)}</div>
         <div class="meta" style="margin-top:8px">${badge(meta)}${repo.group ? `<span class="chip accent">${esc(repo.group)}</span>` : ''}</div>
       </div>
+      ${favStar(repo)}
       <button class="btn ghost icon-only" data-action="close-drawer" title="Close (Esc)">${icon('close')}</button>
     </div>
     <div class="drawer-body">
@@ -709,6 +736,7 @@ function repoMenu(anchor, repoId) {
   const git = (op) => () => bridge.send({ type: op, repo: repoId });
   const web = remoteWebUrl(repo, s);
   const manage = [
+    { text: repo.favorite ? 'Remove from favorites' : 'Mark as favorite', icon: 'star', action: () => toggleFavorite(repoId) },
     { text: 'Copy path', icon: 'copy', action: () => copy(repo.path) },
     ...(web ? [{ text: 'Open remote in browser', icon: 'external', action: () => bridge.send({ type: 'open-url', url: web }) }] : []),
     { text: 'Edit…', icon: 'edit', action: () => editModal(repoId) },
@@ -738,6 +766,16 @@ function repoMenu(anchor, repoId) {
 function copy(text) {
   bridge.send({ type: 'copy', text });
   toast('Copied to the clipboard', 'success');
+}
+
+// Flip the mark locally so the star reacts at once; the host answers with a
+// workspace event that confirms it.
+function toggleFavorite(repoId) {
+  const repo = repoById(repoId);
+  if (!repo) return;
+  repo.favorite = !repo.favorite;
+  bridge.send({ type: 'favorite', repo: repoId, favorite: repo.favorite });
+  render();
 }
 
 // ---- modals -------------------------------------------------------------------
@@ -984,6 +1022,62 @@ function removeModal(repoId) {
   });
 }
 
+function wireBrowse(backdrop) {
+  backdrop.querySelectorAll('[data-browse]').forEach((b) =>
+    b.addEventListener('click', () => browse(backdrop.querySelector(b.dataset.browse))));
+}
+
+function exportModal() {
+  const root = state.workspace.settings.clone_root || '';
+  const backdrop = modal({
+    title: 'Export repository list',
+    body: `
+      <span class="label">Save into folder</span>
+      <div class="field-row"><input class="field mono" id="m-folder" value="${esc(root)}"><button class="btn" data-browse="#m-folder">${icon('folder')}Browse</button></div>
+      <span class="note">Writes <span class="mono">devpanel-repos.json</span> here — each repository's remote, name, group, install command and favorite mark, but no local path. Copy it to another machine and import it there.</span>`,
+    actions: [
+      { text: 'Cancel' },
+      {
+        text: 'Export', kind: 'primary', icon: 'download',
+        run: (r) => {
+          const folder = value(r, '#m-folder').trim();
+          if (!folder) return toast('Choose a folder', 'error'), true;
+          bridge.send({ type: 'export', folder });
+          return false;
+        },
+      },
+    ],
+  });
+  wireBrowse(backdrop);
+}
+
+function importModal() {
+  const root = state.workspace.settings.clone_root || '';
+  const backdrop = modal({
+    title: 'Import & clone repositories',
+    body: `
+      <span class="label">List file is in folder</span>
+      <div class="field-row"><input class="field mono" id="m-folder" placeholder="Folder holding devpanel-repos.json"><button class="btn" data-browse="#m-folder">${icon('folder')}Browse</button></div>
+      <span class="label">Clone into</span>
+      <div class="field-row"><input class="field mono" id="m-dest" value="${esc(root)}"><button class="btn" data-browse="#m-dest">${icon('folder')}Browse</button></div>
+      <span class="note">Reads <span class="mono">devpanel-repos.json</span> from the first folder and clones every repository it lists into the second, each in its own subfolder. Ones already tracked are skipped. Output appears in Activity.</span>`,
+    actions: [
+      { text: 'Cancel' },
+      {
+        text: 'Import', kind: 'primary', icon: 'upload',
+        run: (r) => {
+          const folder = value(r, '#m-folder').trim();
+          if (!folder) return toast('Choose the folder holding the list', 'error'), true;
+          bridge.send({ type: 'import', folder, dest: value(r, '#m-dest').trim() || null });
+          toast('Importing… follow it in Activity', 'info');
+          return false;
+        },
+      },
+    ],
+  });
+  wireBrowse(backdrop);
+}
+
 // ---- toasts ---------------------------------------------------------------------
 
 function toast(message, level = 'info') {
@@ -1010,9 +1104,10 @@ function applyTheme() {
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
 const ACTIONS = {
-  nav: (el) => { state.view = el.dataset.view; state.group = null; state.filter = 'all'; remember('view', state.view); },
-  group: (el) => { state.view = 'repos'; state.group = el.dataset.group; state.filter = 'all'; },
-  filter: (el) => { state.view = 'repos'; state.filter = el.dataset.filter; },
+  nav: (el) => { state.view = el.dataset.view; state.group = null; state.favoritesOnly = false; state.filter = 'all'; remember('view', state.view); },
+  group: (el) => { state.view = 'repos'; state.group = el.dataset.group; state.favoritesOnly = false; state.filter = 'all'; },
+  favorites: () => { state.view = 'repos'; state.group = null; state.favoritesOnly = true; state.filter = 'all'; },
+  filter: (el) => { state.view = 'repos'; state.favoritesOnly = false; state.filter = el.dataset.filter; },
   layout: (el) => { state.layout = el.dataset.layout; remember('layout', state.layout); },
   select: (el) => { state.selected = state.selected === el.dataset.repo ? null : el.dataset.repo; },
   'close-drawer': () => closeDrawer(),
@@ -1032,6 +1127,9 @@ const ACTIONS = {
   run: (el) => runModal(el.dataset.repo),
   edit: (el) => editModal(el.dataset.repo),
   remove: (el) => removeModal(el.dataset.repo),
+  favorite: (el) => toggleFavorite(el.dataset.repo),
+  'export-repos': () => exportModal(),
+  'import-repos': () => importModal(),
   copy: (el) => copy(el.dataset.text),
   'open-url': (el) => bridge.send({ type: 'open-url', url: el.dataset.url }),
   'toggle-job': (el) => {
@@ -1054,7 +1152,7 @@ const ACTIONS = {
 
 // Clicks that only change local view state re-render; ones that open a menu
 // or modal manage their own DOM and must not be re-rendered away.
-const NO_RENDER = new Set(['open-menu', 'repo-menu', 'add-repo', 'commit', 'install', 'run', 'edit', 'remove', 'browse', 'add-tool', 'remove-tool', 'copy', 'open', 'open-url', 'fix']);
+const NO_RENDER = new Set(['open-menu', 'repo-menu', 'add-repo', 'commit', 'install', 'run', 'edit', 'remove', 'favorite', 'export-repos', 'import-repos', 'browse', 'add-tool', 'remove-tool', 'copy', 'open', 'open-url', 'fix']);
 
 document.addEventListener('click', (event) => {
   const el = event.target.closest('[data-action]');

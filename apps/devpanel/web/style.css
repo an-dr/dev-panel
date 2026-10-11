@@ -284,6 +284,11 @@ a { color: var(--accent); }
 .card-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .card-head .badge { margin-top: 3px; }
 .card-head .more { margin: -2px -6px 0 -4px; }
+.card-head .star { margin-top: 1px; }
+.btn.star .ico { transition: transform .12s ease, fill .12s ease; }
+.btn.star:hover .ico { transform: scale(1.12); }
+.btn.star.on { color: var(--warn); }
+.btn.star.on .ico { fill: var(--warn); }
 .avatar {
   width: 38px; height: 38px; border-radius: 10px; flex: none;
   display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff;
