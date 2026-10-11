@@ -26,7 +26,7 @@ devpanel/<version>/devpanel-app --install
 
 That installs to `~/.devpanel/app`; start it from there with `devpanel`. The Linux build needs WebKitGTK 4.1 and GTK 3, which most desktops already have.
 
-**From source**, it needs a Rust toolchain, a C compiler with CMake (bones builds SDL3), and `git` on `PATH`; Linux also needs the WebKitGTK development packages. PowerShell 7 runs the helper scripts.
+**From source**, it needs a Rust toolchain, a C compiler with CMake (bones builds SDL3), and `git` on `PATH`; Linux also needs the WebKitGTK development packages. With Visual Studio 2026 installed, CMake must be 4.2 or newer: the build picks the newest Visual Studio generator, and older CMake fails with "Could not create named generator Visual Studio 18 2026". PowerShell 7 runs the helper scripts.
 
 ```sh
 git clone --recurse-submodules https://github.com/an-dr/dev-panel.git
