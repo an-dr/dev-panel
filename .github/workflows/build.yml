@@ -74,7 +74,7 @@ jobs:
 
       # Release profile, so the tests reuse what dist.ps1 then packages.
       - name: Test
-        run: cargo test --workspace --release
+        run: cargo test --workspace --release --no-fail-fast
 
       - name: Build
         run: ./scripts/dist.ps1
