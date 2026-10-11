@@ -466,6 +466,7 @@ textarea.field { height: auto; min-height: 90px; padding: 9px 11px; resize: vert
   :root { --sidebar: 72px; }
   .brand-name, .brand-sub, .nav-item .label, .nav-label, .nav-item .count { display: none; }
   .nav-item { justify-content: center; }
+  .sidebar-footer { flex-direction: column; }
   .topbar-actions .btn-label { display: none; }
   .topbar-actions .btn { width: 34px; padding: 0; }
   .topbar-title p { display: none; }
