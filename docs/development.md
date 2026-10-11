@@ -12,7 +12,8 @@ apps/devpanel/          the application
 crates/devpanel-core/   domain, use cases and ports
 crates/devpanel-infra/  adapters
 vendor/bones/           the engine, as a git submodule
-scripts/                dist.ps1, install.ps1, preview.ps1
+scripts/                dist.ps1, package-release.ps1, install.ps1, preview.ps1
+.github/workflows/      CI: build, test and release on every platform
 .cargo/config.toml      the install identity bones-upgrader is built with
 docs/                   this documentation
 ```
@@ -65,7 +66,7 @@ The page is plain JavaScript with no build step and no dependencies, because a p
 
 ## Releasing
 
-The version is `[workspace.package] version` in `Cargo.toml`. Move `UPGRADER_LAUNCHER_VERSION` in `.cargo/config.toml` with it: `devpanel --version` reports both, so a mismatch shows.
+The version is `[workspace.package] version` in `Cargo.toml`. Move `UPGRADER_LAUNCHER_VERSION` in `.cargo/config.toml` with it: `devpanel --version` reports both, so a mismatch shows. Releases are built and published by CI from a `v<version>` tag; see [ci.md](ci.md#releasing).
 
 ## Updating bones
 

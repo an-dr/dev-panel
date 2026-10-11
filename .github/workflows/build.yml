@@ -1,0 +1,117 @@
+name: build
+
+# Every platform builds and tests natively on its own GitHub runner, through
+# the same scripts a developer runs locally (docs/ci.md). A v<version> tag
+# also publishes the three zips as a GitHub release.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run pointless; tags always
+# finish, since they publish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
+          - platform: windows-x64
+            runner: windows-2025
+          - platform: windows-arm64
+            runner: windows-11-arm
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
+            libwayland-dev libxkbcommon-dev libegl1-mesa-dev libasound2-dev libpulse-dev
+
+      # The ARM runner image ships without Rust; the others have rustup.
+      - name: Install Rust
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+            Invoke-WebRequest "https://static.rust-lang.org/rustup/dist/$arch-pc-windows-msvc/rustup-init.exe" -OutFile rustup-init.exe
+            ./rustup-init.exe -y --profile minimal --default-toolchain none
+            "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+            $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+          }
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}
+
+      # Release profile, so the tests reuse what dist.ps1 then packages.
+      - name: Test
+        run: cargo test --workspace --release
+
+      - name: Build
+        run: ./scripts/dist.ps1
+
+      - name: Package
+        run: ./scripts/package-release.ps1 -Platform ${{ matrix.platform }} -Tag "${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}"
+
+      # Every run's zip is downloadable from the run page, tag or not.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devpanel-${{ matrix.platform }}
+          path: release/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: devpanel-*
+          path: release
+          merge-multiple: true
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l release
+          test "$(ls release/*.zip | wc -l)" -eq 3
+          (cd release && sha256sum *.zip > SHA256SUMS)
+          gh release create "${{ github.ref_name }}" release/* \
+            --repo "${{ github.repository }}" \
+            --title "DevPanel ${{ github.ref_name }}" \
+            --generate-notes

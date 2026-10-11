@@ -31,11 +31,18 @@ Everything decided without asking. Each item says what was assumed; tick it, or 
 
 ## Not tested
 
-- [ ] **Windows and macOS.** Everything platform-specific is written (Windows Terminal or `cmd`, `PATHEXT` and `.cmd` shims such as `code.cmd`, Explorer, Start menu shortcut, no console window; Terminal.app and `open` on macOS) but has only been compiled and run on Linux.
+- [ ] **Windows by hand.** CI builds and runs the full test suite on Windows x64 and ARM64, but nobody has clicked through the desktop paths there: Windows Terminal or `cmd`, `PATHEXT` and `.cmd` shims such as `code.cmd`, Explorer, the Start menu shortcut. macOS is neither built nor tested.
 - [ ] **The native folder picker, opening a URL and the clipboard** go through bones' `os` module. They are wired and covered by the protocol, but were not clicked in the real window: doing so would have opened dialogs and changed your clipboard on your desktop.
 - [ ] **Launching VS Code, Claude Code and a real terminal** from the window. Launching was verified end to end with a harmless test tool, and the terminal command line with `cosmic-term -e`.
 
+## Releases
+
+- [ ] **Native CI runners instead of Commits' Docker cross-build** ([ci.md](docs/ci.md)): each platform builds and tests on its own runner, including `windows-11-arm`, which is free for public repositories.
+- [ ] **Release contents:** per platform, one zip holding `devpanel/` in the install layout, plus `SHA256SUMS`. No bones-upgrader update manifest yet, since there is no in-app updater to read one.
+- [ ] **Linux binaries link the system's WebKitGTK 4.1 and GTK 3** instead of bundling them. No AppImage or .deb. Wanted?
+- [ ] **Release binaries are stripped** (`[profile.release] strip = true`).
+- [ ] **License file added**: MIT, copyright Andrei Gramakov 2026.
+
 ## Repository
 
-- [ ] **Nothing is committed yet.** Git is initialised on `main`, bones is a submodule, and `origin` is `https://github.com/an-dr/dev-panel.git`. Nothing was pushed.
 - [ ] **No `AGENTS.md`.** The repository does not opt into your agent workflow. Add one, as bones and Commits have?

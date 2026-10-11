@@ -18,7 +18,15 @@ Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://gith
 
 ## Getting it
 
-DevPanel builds from source. It needs a Rust toolchain, a C compiler with CMake (bones builds SDL3), and `git` on `PATH`; Linux also needs the WebKitGTK development packages. PowerShell 7 runs the helper scripts.
+**Download** the zip for your platform — Linux x64, Windows x64 or Windows ARM64 — from the [latest release](https://github.com/an-dr/dev-panel/releases/latest), unzip it, and either run `devpanel/devpanel` directly or install it for your user:
+
+```sh
+devpanel/<version>/devpanel-app --install
+```
+
+That installs to `~/.devpanel/app`; start it from there with `devpanel`. The Linux build needs WebKitGTK 4.1 and GTK 3, which most desktops already have.
+
+**From source**, it needs a Rust toolchain, a C compiler with CMake (bones builds SDL3), and `git` on `PATH`; Linux also needs the WebKitGTK development packages. PowerShell 7 runs the helper scripts.
 
 ```sh
 git clone --recurse-submodules https://github.com/an-dr/dev-panel.git
@@ -45,7 +53,7 @@ Status is read when DevPanel starts, when its window regains focus, and after ev
 
 ## Platforms
 
-Developed and tested on Linux (Pop!_OS 24.04, COSMIC on Wayland via Xwayland). The Windows and macOS code paths — terminals, shell, file manager, `.cmd` shims — are written but not yet run; see [VERIFY.md](VERIFY.md).
+Linux x64, Windows x64 and Windows ARM64 are built and tested by [CI](docs/ci.md) on every push. Day-to-day use has been on Linux (Pop!_OS 24.04, COSMIC via Xwayland); the Windows desktop paths — terminals, Start menu, `.cmd` shims — pass the tests but have not been clicked through by a person, and macOS is not built. See [VERIFY.md](VERIFY.md).
 
 ## Documentation
 
