@@ -1,0 +1,32 @@
+[package]
+name = "devpanel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A dashboard for the git repositories you work on."
+
+default-run = "devpanel-app"
+
+# The app itself, which lives in a version folder.
+[[bin]]
+name = "devpanel-app"
+path = "src/main.rs"
+
+# The permanent entry point at the install root, installed there as
+# `devpanel`. It starts the newest version folder's app (bones-upgrader).
+[[bin]]
+name = "devpanel-launcher"
+path = "src/bin/devpanel-launcher.rs"
+
+[dependencies]
+devpanel-core = { path = "../../crates/devpanel-core" }
+devpanel-infra = { path = "../../crates/devpanel-infra" }
+# The app draws its interface in a web panel and uses the os module for
+# folder pickers and the browser; it needs neither audio nor game-core.
+bones-engine = { path = "../../vendor/bones/crates/bones-engine", default-features = false, features = ["web", "os"] }
+bones-upgrader = { path = "../../vendor/bones/crates/bones-upgrader" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DevPanel</title>
+  <style>/*@STYLE@*/</style>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar" class="sidebar"></aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1 id="page-title">Overview</h1>
+          <p id="page-subtitle" class="muted"></p>
+        </div>
+        <label class="search">
+          <span class="icon" data-icon="search"></span>
+          <input id="search" type="search" placeholder="Search repositories  ( / )" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="topbar-actions">
+          <button class="btn ghost" data-action="refresh-all" title="Re-read the status of every repository"><span class="icon" data-icon="refresh"></span><span class="btn-label">Refresh</span></button>
+          <button class="btn ghost" data-action="fetch-all" title="Fetch every repository from its remotes"><span class="icon" data-icon="cloudDown"></span><span class="btn-label">Fetch all</span></button>
+          <button class="btn primary" data-action="add-repo"><span class="icon" data-icon="plus"></span><span class="btn-label">Add repository</span></button>
+        </div>
+      </header>
+      <section id="content" class="content"></section>
+    </main>
+    <aside id="drawer" class="drawer" aria-hidden="true"></aside>
+  </div>
+  <div id="menu-root"></div>
+  <div id="modal-root"></div>
+  <div id="toasts" aria-live="polite"></div>
+  <script>/*@SCRIPT@*/</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+[env]
+# Who bones-upgrader builds for: the install folder (~/.devpanel/app), the
+# variable that redirects it, and the two executable names. Read at compile
+# time, so the launcher and the app always agree.
+#
+# UPGRADER_LAUNCHER_VERSION moves with [workspace.package] version in
+# Cargo.toml; `devpanel --version` reports both.
+UPGRADER_INSTALL_DIR_NAME = ".devpanel"
+UPGRADER_INSTALL_ENV_VAR = "DEVPANEL_INSTALL_DIR"
+UPGRADER_LAUNCHER_STEM = "devpanel"
+UPGRADER_APP_STEM = "devpanel-app"
+UPGRADER_LAUNCHER_VERSION = "0.1.0"

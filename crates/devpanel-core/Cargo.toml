@@ -1,0 +1,9 @@
+[package]
+name = "devpanel-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Domain model and use cases of DevPanel. No I/O: everything outside is a port."
+
+[dependencies]
+serde.workspace = true
