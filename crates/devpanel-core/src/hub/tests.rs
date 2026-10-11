@@ -181,8 +181,9 @@ fn adding_a_plain_folder_is_refused() {
 fn clone_goes_under_the_clone_root_and_is_tracked() {
     let f = fixture(FakeGit::default());
     let repo = f.hub.clone_repo("git@github.com:an-dr/commits.git", None, &Silent).unwrap();
-    assert_eq!(repo.path, PathBuf::from("/home/u/Code/commits"));
-    assert_eq!(f.git.calls(), ["clone git@github.com:an-dr/commits.git /home/u/Code/commits"]);
+    let dest = Path::new("/home/u").join("Code").join("commits");
+    assert_eq!(repo.path, dest);
+    assert_eq!(f.git.calls(), [format!("clone git@github.com:an-dr/commits.git {}", dest.display())]);
 }
 
 #[test]
