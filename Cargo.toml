@@ -22,3 +22,7 @@ debug = false
 
 [profile.dev]
 debug = 0
+
+# Release binaries ship without symbols; it roughly halves their size.
+[profile.release]
+strip = true
