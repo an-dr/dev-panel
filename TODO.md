@@ -1,16 +1,24 @@
 # TODO
 
-## Ship Commits with DevPanel
+## Integrate Commits
 
-Bundle a pinned [Commits](https://github.com/an-dr/commits) release in every DevPanel release, so the default "Commits" tool works right after installing DevPanel.
+Goal: Commits is DevPanel's git client. Any repository opens in it in one click, the same window is reused, and each problem DevPanel reports opens in the Commits view where it is fixed.
 
-- Pin the Commits version in one place in this repository (currently 1.8.1).
-- In the release build, download `commits-<version>-<platform>.zip` for each platform, verify it against the `sha256` in Commits' `commits-<platform>.json` manifest, and place it inside the DevPanel zip.
-- Have `scripts/dist.ps1` fetch the same pinned zip, so a local install matches a release.
-- On `devpanel-app --install` and `scripts/install.ps1`, install the bundled Commits into `~/.commits/app` only when it is absent. Never downgrade or overwrite an existing install. Check whether Commits updates itself after install; its release manifests suggest it does.
-- If installing Commits fails, warn and still install DevPanel.
-- Leave Commits in place when DevPanel is removed; it is a standalone app.
+The work spans bones, Commits and DevPanel, in that order. It is split into numbered briefs to hand to an agent in each repository: [plans/commits-integration/](plans/commits-integration/README.md). Start with that README; [00-contracts.md](plans/commits-integration/00-contracts.md) holds what the two apps must agree on.
 
-Cost: about 25 MB more per platform download (roughly 11 MB to 36 MB).
+### Where Commits stands (1.8.1, checked 2026-10-12)
 
-Considered instead: downloading Commits on demand at install or on first "Open in Commits". It keeps the zip small but needs the network and a download-and-verify path in DevPanel. Embedding Commits as a bones extension was set aside: two git layers, coupled releases and the WASM toolchain for one panel.
+- `commits <path>` opens that repository, or every repository below a folder. Only the first argument is read.
+- Each launch starts a new process and window; nothing hands a second launch to the running window.
+- It reads unfinished operations, conflicts and submodule status, and shows a ready/busy light. It gives no single verdict for the repository.
+- It keeps its own list of recent repositories and knows nothing of DevPanel's list.
+- It updates itself from its GitHub releases, and registers itself with Windows and Linux desktops.
+- It has `GIT_ASKPASS` and `GIT_EDITOR` helpers and GitHub sign-in. DevPanel runs git with prompts disabled.
+- Its themes are Paper and Graphite, nothing like DevPanel's navy and cyan.
+- Both apps pin the same bones commit, `ff90d95`.
+
+### Set aside
+
+- **Downloading Commits on demand** instead of bundling it. The zip stays small, but it needs the network and a download-and-verify path in DevPanel.
+- **Embedding Commits as a bones extension** inside DevPanel. It means two git layers, coupled releases and the WASM toolchain, all for one panel; the handoff gives most of the benefit.
+- **DevPanel prompting for credentials** through Commits' askpass helper. Reconsider once the integration ships.
