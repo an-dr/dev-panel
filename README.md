@@ -47,7 +47,7 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 - **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and get their own section.
 - Click a card to open its details: changed files, every git action, tools, install, recent output.
 - **Activity** keeps the output of everything DevPanel ran.
-- **Settings** sets the clone folder, the default tool, automatic fetching, the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
+- **Settings** sets the clone folder, the default tool, automatic fetching, the theme, the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
 - `/` searches, Ctrl+R refreshes, Esc closes whatever is open.
 
 Status is read when DevPanel starts, when its window regains focus, and after every action. "Behind" is only as fresh as the last fetch: use **Fetch all**, or turn on automatic fetching.

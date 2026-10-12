@@ -54,6 +54,7 @@ fn adding_a_repository_sends_the_workspace_and_its_status() {
     let events = wait_for(&controller, |e| matches!(e, Event::Status { .. }));
 
     assert!(events.iter().any(|e| matches!(e, Event::Workspace { workspace, .. } if workspace.repos.len() == 1)));
+    assert!(events.iter().any(|e| matches!(e, Event::Workspace { version, .. } if *version == env!("CARGO_PKG_VERSION"))));
     let Some(Event::Status { health, .. }) = events.last() else { unreachable!() };
     assert_eq!(*health, Health::Clean);
 }

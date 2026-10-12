@@ -358,7 +358,7 @@ fn workspace_event(hub: &Hub) -> Event {
     } else {
         "linux"
     };
-    Event::Workspace { workspace: hub.workspace(), platform }
+    Event::Workspace { workspace: hub.workspace(), platform, version: env!("CARGO_PKG_VERSION") }
 }
 
 fn to_json(value: &impl serde::Serialize) -> HubResult<serde_json::Value> {

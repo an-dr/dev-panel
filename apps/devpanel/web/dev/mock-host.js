@@ -62,7 +62,7 @@
 
   const emit = (events) => setTimeout(() => window.dispatchEvent(new CustomEvent('bones-message', { detail: JSON.stringify(events) })), 30);
   const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)) });
-  const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux' });
+  const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview' });
   let job = 0;
 
   function runJob(repo, title, lines, after, fail) {

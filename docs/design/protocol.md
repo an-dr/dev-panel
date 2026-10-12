@@ -49,7 +49,7 @@ The last three are answered by the bones `os` module; the rest by the controller
 
 | `type` | Fields | Meaning |
 | --- | --- | --- |
-| `workspace` | `workspace`, `platform` | Everything persisted: `repos`, `tools`, `settings`. Sent at start and after any change to them |
+| `workspace` | `workspace`, `platform`, `version` | Everything persisted: `repos`, `tools`, `settings`; `version` is the app's own. Sent at start and after any change to them |
 | `status` | `repo`, `status`, `health`, `fixes` | A fresh status read with its verdict ([domain.md](domain.md)) |
 | `job` | `job`, `repo?`, `title`, `state`, `error?` | A job started (`running`) or ended (`succeeded`, `failed`) |
 | `log` | `job`, `line` | One line of a job's output |

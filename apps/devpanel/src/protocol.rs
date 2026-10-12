@@ -55,7 +55,7 @@ pub enum JobState {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Event {
-    Workspace { workspace: Workspace, platform: &'static str },
+    Workspace { workspace: Workspace, platform: &'static str, version: &'static str },
     Status { repo: RepoId, status: RepoStatus, health: Health, fixes: Vec<Fix> },
     Job { job: u64, repo: Option<RepoId>, title: String, state: JobState, error: Option<String> },
     Log { job: u64, line: String },

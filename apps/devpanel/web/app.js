@@ -78,6 +78,7 @@ bridge.on((message) => {
       state.ready = true;
       state.workspace = message.workspace;
       state.platform = message.platform;
+      state.version = message.version;
       state.settingsStale = true;
       for (const id of [...state.statuses.keys()]) {
         if (!repoById(id)) state.statuses.delete(id);
@@ -134,7 +135,7 @@ const HEALTH = {
   ahead: { label: 'Unpushed', tone: 'info', hint: 'You have commits the remote does not' },
   unpublished: { label: 'Unpublished', tone: 'info', hint: 'The branch has no upstream yet' },
   detached: { label: 'Detached HEAD', tone: 'warn', hint: 'Not on a branch' },
-  clean: { label: 'Clean', tone: 'ok', hint: 'Up to date and nothing to commit' },
+  clean: { label: 'Clean', tone: 'muted', hint: 'Up to date and nothing to commit' },
 };
 const HEALTH_ORDER = Object.keys(HEALTH);
 const PENDING = { label: 'Checking…', tone: 'muted', hint: 'Reading status' };
@@ -166,13 +167,8 @@ const changes = (s) => s.staged + s.unstaged + s.untracked + s.conflicted;
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 const lastLines = (text, n) => String(text || '').split('\n').slice(-n).join('\n');
 
-function hue(name) {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
 function avatar(repo) {
-  return `<div class="avatar" style="--h:${hue(repo.name)}">${esc(repo.name.slice(0, 1).toUpperCase())}</div>`;
+  return `<div class="avatar">${esc(repo.name.slice(0, 1).toUpperCase())}</div>`;
 }
 function ago(seconds) {
   if (!seconds) return '';
@@ -250,6 +246,9 @@ function groups() {
   return [...map.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || a[0].localeCompare(b[0]));
 }
 
+// The app icon (assets/devpanel.svg), redrawn with paths so it needs no font.
+const BRAND_MARK = '<svg viewBox="0 0 128 118" aria-hidden="true"><path d="M24 4h80l20 55-20 55H24L4 59z" fill="#191b39" stroke="#9afff5" stroke-width="8" stroke-linejoin="round"/><path d="m38 40 22 19-22 19M66 80h26" fill="none" stroke="#9afff5" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function renderSidebar() {
   const c = counts();
   const favorites = state.workspace.repos.filter((r) => r.favorite).length;
@@ -267,21 +266,24 @@ function renderSidebar() {
       ${icon('layers')}<span class="label truncate">${esc(group)}</span><span class="count">${n}</span>
     </button>`).join('');
   const theme = state.workspace.settings.theme || 'system';
-  const themeBtn = (value, iconName, title) =>
-    `<button class="btn sm ghost theme-btn ${theme === value ? 'active' : ''}" title="${title}" data-action="theme" data-theme="${value}">${icon(iconName)}</button>`;
+  const next = theme === 'dark' ? 'light' : 'dark';
+  const themeToggle = theme === 'system' ? '' : `
+    <button class="nav-item" data-action="theme" data-theme="${next}" title="Switch to the ${next} theme">
+      ${icon(theme === 'dark' ? 'moon' : 'sun')}<span class="label">${theme === 'dark' ? 'Dark' : 'Light'} theme</span>
+    </button>`;
   $('#sidebar').innerHTML = `
     <div class="brand">
-      <div class="brand-mark">${icon('stack')}</div>
+      <div class="brand-mark">${BRAND_MARK}</div>
       <div><div class="brand-name">DevPanel</div><div class="brand-sub">Your repositories</div></div>
     </div>
     ${nav('overview', 'home', 'Overview', c.attention, true)}
     ${favoritesNav}
     ${nav('repos', 'repo', 'Repositories', c.total)}
     ${nav('activity', 'activity', 'Activity', c.running)}
-    ${nav('settings', 'settings', 'Settings')}
     ${groupItems ? `<div class="nav-label">Groups</div>${groupItems}` : ''}
     <div class="sidebar-footer">
-      ${themeBtn('light', 'sun', 'Light theme')}${themeBtn('system', 'monitor', 'Follow the system')}${themeBtn('dark', 'moon', 'Dark theme')}
+      ${themeToggle}
+      ${nav('settings', 'settings', 'Settings')}
     </div>`;
 }
 
@@ -317,11 +319,11 @@ const VIEWS = {
     const recent = sortRepos(state.workspace.repos, 'recent').slice(0, 6);
     return `
       <div class="stats">
-        ${stat(c.total, 'Repositories', 'repo', 'info', 'all')}
-        ${stat(c.attention, 'Need attention', 'alert', c.attention ? 'warn' : 'ok', 'attention')}
-        ${stat(c.dirty, 'Uncommitted', 'edit', c.dirty ? 'warn' : 'ok', 'dirty')}
-        ${stat(c.behind, 'Behind remote', 'arrowDown', c.behind ? 'info' : 'ok', 'behind')}
-        ${stat(c.ahead, 'Unpushed', 'arrowUp', c.ahead ? 'info' : 'ok', 'ahead')}
+        ${stat(c.total, 'Repositories', 'repo', 'muted', 'all')}
+        ${stat(c.attention, 'Need attention', 'alert', c.attention ? 'warn' : 'muted', 'attention')}
+        ${stat(c.dirty, 'Uncommitted', 'edit', c.dirty ? 'warn' : 'muted', 'dirty')}
+        ${stat(c.behind, 'Behind remote', 'arrowDown', c.behind ? 'info' : 'muted', 'behind')}
+        ${stat(c.ahead, 'Unpushed', 'arrowUp', c.ahead ? 'info' : 'muted', 'ahead')}
       </div>
       ${favorites.length ? `<div class="section-head"><h2>Favorites</h2><span class="muted">The repositories you pinned</span></div><div class="cards">${favorites.map(card).join('')}</div>` : ''}
       <div class="section-head"><h2>Needs attention</h2><span class="muted">${attention.length ? 'Fix with one click, or open in your tool' : ''}</span></div>
@@ -386,6 +388,14 @@ const VIEWS = {
           <label for="s-depth">Scan depth</label>
           <input id="s-depth" class="field" type="number" min="1" max="8" name="scan_depth" value="${esc(s.scan_depth)}">
           <span class="hint">How many folder levels “Scan a folder” searches.</span>
+          <label for="s-theme">Theme</label>
+          <select id="s-theme" class="field" name="theme">
+            ${[['system', 'Follow the system'], ['light', 'Light'], ['dark', 'Dark']]
+              .map(([v, l]) => `<option value="${v}" ${(s.theme || 'system') === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <span class="hint">A fixed theme adds a light/dark switch to the sidebar.</span>
+          <span class="form-label">Version</span>
+          <span class="form-value mono">${esc(state.version || 'unknown')}</span>
         </div>
         <div class="panel-actions"><button class="btn primary" type="submit">${icon('check')}Save settings</button></div>
       </form>
@@ -505,7 +515,7 @@ function card(repo) {
       <div class="card-head">
         ${avatar(repo)}
         <div class="card-title">
-          <div class="name"><span class="truncate">${esc(repo.name)}</span>${repo.group ? `<span class="chip accent">${esc(repo.group)}</span>` : ''}</div>
+          <div class="name"><span class="truncate">${esc(repo.name)}</span>${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
           <div class="path mono truncate" title="${esc(repo.path)}">${esc(shortPath(repo.path))}</div>
         </div>
         ${badge(meta, headline)}
@@ -541,7 +551,7 @@ function row(repo) {
 }
 
 function jobView(job) {
-  const tone = { running: 'info', succeeded: 'ok', failed: 'danger' }[job.state];
+  const tone = { running: 'info', succeeded: 'muted', failed: 'danger' }[job.state];
   const glyph = job.state === 'running' ? '<span class="spinner"></span>'
     : `<span class="state-dot tone-${tone}">${icon(job.state === 'succeeded' ? 'check' : 'close')}</span>`;
   const repo = job.repo && repoById(job.repo);
@@ -619,7 +629,7 @@ function renderDrawer() {
       <div style="flex:1;min-width:0">
         <h2 class="truncate">${esc(repo.name)}</h2>
         <div class="mono muted truncate" title="${esc(repo.path)}">${esc(repo.path)}</div>
-        <div class="meta" style="margin-top:8px">${badge(meta)}${repo.group ? `<span class="chip accent">${esc(repo.group)}</span>` : ''}</div>
+        <div class="meta" style="margin-top:8px">${badge(meta)}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
       </div>
       ${favStar(repo)}
       <button class="btn ghost icon-only" data-action="close-drawer" title="Close (Esc)">${icon('close')}</button>
@@ -1191,6 +1201,7 @@ document.addEventListener('submit', (event) => {
         default_tool: data.get('default_tool') || null,
         auto_fetch_minutes: Number(data.get('auto_fetch_minutes')),
         scan_depth: Math.max(1, Math.min(8, Number(data.get('scan_depth')) || 3)),
+        theme: data.get('theme') || 'system',
       },
     });
     toast('Settings saved', 'success');
