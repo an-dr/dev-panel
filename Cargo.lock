@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "devpanel"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bones-engine",
  "bones-upgrader",
@@ -990,14 +990,14 @@ dependencies = [
 
 [[package]]
 name = "devpanel-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "devpanel-infra"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "devpanel-core",
  "dirs",
