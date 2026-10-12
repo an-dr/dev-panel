@@ -34,6 +34,24 @@ A folder inside another repository is *not a repository*: the working tree's top
 
 "Behind" counts only what the last fetch saw. DevPanel fetches only when asked, or on the interval set in Settings.
 
+### Verdicts
+
+The names other programs see. The id is what the [protocol](protocol.md) carries, the label is what the user reads, and the urgency picks the colour ([colours.md](colours.md#dark-cockpit)). Commits shows the same verdicts with the same labels, so this table is a contract: change it here first, and Commits follows.
+
+| Id | Label | Urgency |
+| --- | --- | --- |
+| `missing` | Missing | warning |
+| `not-a-repo` | Not a repository | warning |
+| `conflicted` | Conflicts | warning |
+| `in-progress` | In progress | caution |
+| `diverged` | Diverged | caution |
+| `behind` | Behind | advisory |
+| `dirty` | Uncommitted | caution |
+| `ahead` | Unpushed | advisory |
+| `detached` | Detached HEAD | caution |
+| `unpublished` | Unpublished | advisory |
+| `clean` | Clean | normal |
+
 ## Fixes
 
 The verdict picks the badge; the fixes are every action that would improve the repository, most useful first. A repository can be behind *and* dirty, and it is offered both.
