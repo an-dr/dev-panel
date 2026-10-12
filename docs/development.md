@@ -12,7 +12,7 @@ apps/devpanel/          the application
 crates/devpanel-core/   domain, use cases and ports
 crates/devpanel-infra/  adapters
 vendor/bones/           the engine, as a git submodule
-scripts/                dist.ps1, package-release.ps1, install.ps1, preview.ps1
+scripts/                dist.ps1, package-release.ps1, install.ps1, preview.ps1, screenshot.ps1
 .github/workflows/      CI: build, test and release on every platform
 .cargo/config.toml      the install identity bones-upgrader is built with
 docs/                   this documentation
@@ -55,6 +55,12 @@ pwsh scripts/preview.ps1
 ```
 
 writes `.artifacts/preview/index.html`: the page with `web/dev/mock-host.js` standing in for the host, with sample repositories and simulated jobs. Serve or open it in any browser. The mock speaks the same [protocol](design/protocol.md); keep it in step when the protocol changes.
+
+```sh
+pwsh scripts/screenshot.ps1 -View settings -Theme dark -Width 1280,900
+```
+
+renders that preview in headless Chrome or Edge and writes `.artifacts/screenshots/<view>-<theme>-<width>.png`. Below 980 px the sidebar collapses to icons, so check both widths.
 
 The page is plain JavaScript with no build step and no dependencies, because a panel's page is loaded from a string and cannot rely on the network. `render()` rebuilds the visible view from state after every host batch; menus and modals live in their own roots, so a status update never closes one under the user's cursor.
 
