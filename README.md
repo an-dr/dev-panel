@@ -1,5 +1,7 @@
 # DevPanel
 
+[![Built with AI assistance](https://img.shields.io/badge/built%20with-AI%20assistance-8a2be2)](#built-with-ai-assistance)
+
 A desktop dashboard for the git repositories you work on. Add them once, then see at a glance which ones need a pull, a push or a commit, fix them in one click, open them in VS Code, Claude Code or Commits, and run their install scripts — without a terminal or a file explorer.
 
 Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://github.com/an-dr/bones) engine.
@@ -60,6 +62,10 @@ Linux x64, Windows x64 and Windows ARM64 are built and tested by [CI](docs/ci.md
 ## Documentation
 
 [docs/index.md](docs/index.md) is the map: architecture, the domain rules behind the health verdict, the page protocol, development, and decisions.
+
+## Built with AI assistance
+
+DevPanel is written with the help of AI coding assistants, and every change is reviewed and committed by its maintainer. Commits do not name an assistant as a co-author; [CI](docs/ci.md#co-author-check) rejects ones that do.
 
 ## License
 
