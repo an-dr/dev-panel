@@ -1,13 +1,14 @@
 //! The use cases: everything the dashboard can do, as one service.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::domain::{
-    detect_install_recipes, repo_name_from_url, Fix, InstallRecipe, Platform, Repo, RepoExport, RepoId, RepoList,
-    RepoStatus, Settings, Tool, ToolId, Workspace,
+    detect_install_recipes, repo_name_from_url, CommitsLink, Fix, InstallRecipe, Platform, Repo, RepoExport, RepoId,
+    RepoList, RepoStatus, ResolvedTheme, Settings, Tool, ToolId, Workspace,
 };
-use crate::ports::{FileSystem, Git, Launcher, Output, Shell, Store};
+use crate::ports::{FileSystem, Git, Launcher, Output, RepoSource, RepoWatch, Shell, Store, WatchHandle};
 use crate::{HubError, HubResult};
 
 /// Name of the file an export writes and an import reads, inside the folder
@@ -22,6 +23,8 @@ pub struct Ports {
     pub launcher: Arc<dyn Launcher>,
     pub fs: Arc<dyn FileSystem>,
     pub store: Arc<dyn Store>,
+    pub watch: Arc<dyn RepoWatch>,
+    pub source: Arc<dyn RepoSource>,
 }
 
 /// User-editable fields of a tracked repository.
@@ -39,16 +42,26 @@ pub struct Hub {
     ports: Ports,
     platform: Platform,
     workspace: Mutex<Workspace>,
+    /// Bumped on every saved change, so a caller can tell the workspace
+    /// changed without comparing it.
+    revision: AtomicU64,
 }
 
 impl Hub {
     pub fn open(ports: Ports, platform: Platform) -> HubResult<Self> {
         let workspace = ports.store.load()?;
-        Ok(Self { ports, platform, workspace: Mutex::new(workspace) })
+        // Once at start, so a list deleted while DevPanel was closed returns.
+        let _ = ports.source.publish(&workspace.repos);
+        Ok(Self { ports, platform, workspace: Mutex::new(workspace), revision: AtomicU64::new(0) })
     }
 
     pub fn workspace(&self) -> Workspace {
         self.lock().clone()
+    }
+
+    /// Changes whenever the saved workspace does.
+    pub fn revision(&self) -> u64 {
+        self.revision.load(Ordering::Relaxed)
     }
 
     pub fn repo(&self, id: &RepoId) -> HubResult<Repo> {
@@ -86,6 +99,29 @@ impl Hub {
             added.push(self.track(path, remote)?);
         }
         Ok(added)
+    }
+
+    /// Opens a folder handed to DevPanel, as `devpanel <path>` does: the
+    /// repository itself when `path` is one, otherwise every repository
+    /// under it. Tracked repositories are returned rather than refused, so
+    /// the caller can select what the user pointed at either way. The result
+    /// is in scan order; empty when the folder holds no repository.
+    pub fn add_or_scan(&self, path: &Path) -> HubResult<Vec<Repo>> {
+        let path = self.ports.fs.expand(path);
+        let status = self.ports.git.status(&path);
+        if status.is_repo {
+            return Ok(vec![self.tracked_or_track(path, status.remote_url)?]);
+        }
+        if !self.ports.fs.exists(&path) {
+            return Err(HubError::Invalid(format!("{} does not exist", path.display())));
+        }
+        let depth = self.lock().settings.scan_depth;
+        let mut repos = Vec::new();
+        for found in self.ports.fs.find_repos(&path, depth) {
+            let remote = self.ports.git.status(&found).remote_url;
+            repos.push(self.tracked_or_track(found, remote)?);
+        }
+        Ok(repos)
     }
 
     /// Clones `url` into `parent` (the configured clone root when `None`)
@@ -303,7 +339,30 @@ impl Hub {
         if !self.ports.fs.exists(&repo.path) {
             return Err(HubError::Invalid(format!("{} does not exist", repo.path.display())));
         }
-        self.ports.launcher.launch(&tool, &repo.path)
+        self.ports.launcher.launch(&tool, &repo.path, &[])
+    }
+
+    /// Opens the repository in Commits, on the view that fixes what is wrong
+    /// with it ([`CommitsLink`]), in DevPanel's `theme` and, when given, the
+    /// palette in `theme_file`. Refused when there is no repository to open
+    /// or no Commits tool.
+    pub fn open_in_commits(&self, id: &RepoId, theme: ResolvedTheme, theme_file: Option<&Path>) -> HubResult<()> {
+        let repo = self.repo(id)?;
+        let tool = self.commits_tool().ok_or_else(|| HubError::NotFound("there is no Commits tool".into()))?;
+        let status = self.ports.git.status(&repo.path);
+        let args = CommitsLink::for_status(&status, theme, theme_file)
+            .ok_or_else(|| HubError::Invalid(format!("{} has no repository to open", repo.path.display())))?;
+        self.ports.launcher.launch(&tool, &repo.path, &args)
+    }
+
+    /// Whether "Open in Commits" can work: the Commits tool is still in the
+    /// tool list and its program is installed.
+    pub fn commits_available(&self) -> bool {
+        self.commits_tool().is_some_and(|tool| self.ports.launcher.is_available(&tool))
+    }
+
+    fn commits_tool(&self) -> Option<Tool> {
+        self.lock().tools.iter().find(|t| t.id.0 == ToolId::COMMITS).cloned()
     }
 
     fn tool(&self, id: Option<&ToolId>) -> HubResult<Tool> {
@@ -314,6 +373,15 @@ impl Hub {
             None => ws.tools.first(),
         };
         found.cloned().ok_or_else(|| HubError::NotFound("no tool is configured".into()))
+    }
+
+    // ---- watching ------------------------------------------------------------
+
+    /// Calls `on_change` whenever the repository changes outside DevPanel,
+    /// until the handle is dropped.
+    pub fn watch(&self, id: &RepoId, on_change: Box<dyn Fn() + Send>) -> HubResult<WatchHandle> {
+        let path = self.repo(id)?.path;
+        Ok(self.ports.watch.watch(&path, on_change))
     }
 
     // ---- install -----------------------------------------------------------
@@ -375,12 +443,23 @@ impl Hub {
         let mut next = ws.clone();
         let value = change(&mut next)?;
         self.ports.store.save(&next)?;
+        // The adapter reports its own failure; the change itself succeeded.
+        let _ = self.ports.source.publish(&next.repos);
         *ws = next;
+        self.revision.fetch_add(1, Ordering::Relaxed);
         Ok(value)
     }
 
     fn is_tracked(&self, path: &Path) -> bool {
         self.lock().repos.iter().any(|r| r.path == path)
+    }
+
+    fn tracked_or_track(&self, path: PathBuf, remote: Option<String>) -> HubResult<Repo> {
+        let existing = self.lock().repos.iter().find(|r| r.path == path).cloned();
+        match existing {
+            Some(repo) => Ok(repo),
+            None => self.track(path, remote),
+        }
     }
 
     fn track(&self, path: PathBuf, remote: Option<String>) -> HubResult<Repo> {

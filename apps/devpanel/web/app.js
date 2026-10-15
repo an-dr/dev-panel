@@ -63,6 +63,10 @@ const state = {
   selected: null,
   expandedJobs: new Set(),
   settingsStale: true,
+  /** Desktop registration: `registered` is unknown (null) until the host answers. */
+  desktop: { registered: null, busy: false },
+  /** Self-update: a newer release, once found, and the one staged for next start. */
+  update: { available: null, staged: null, busy: false, checked: false },
 };
 
 function load(key, fallback) {
@@ -79,12 +83,15 @@ bridge.on((message) => {
       state.workspace = message.workspace;
       state.platform = message.platform;
       state.version = message.version;
+      state.commits = message.commits;
       state.settingsStale = true;
       for (const id of [...state.statuses.keys()]) {
         if (!repoById(id)) state.statuses.delete(id);
       }
       if (state.selected && !repoById(state.selected)) closeDrawer();
       applyTheme();
+      if (state.desktop.registered === null && !state.desktop.busy) desktop('status');
+      if (!state.update.checked) update('check');
       break;
     case 'status':
       state.statuses.set(message.repo, { status: message.status, health: message.health, fixes: message.fixes });
@@ -99,6 +106,10 @@ bridge.on((message) => {
       break;
     }
     case 'toast': toast(message.message, message.level); break;
+    // `devpanel <path>`: show what the user pointed at.
+    case 'select':
+      if (repoById(message.repo)) openDrawer(message.repo);
+      break;
   }
 });
 
@@ -133,8 +144,8 @@ const HEALTH = {
   behind: { label: 'Behind', tone: 'info', hint: 'The remote has commits you do not' },
   dirty: { label: 'Uncommitted', tone: 'warn', hint: 'There are uncommitted changes' },
   ahead: { label: 'Unpushed', tone: 'info', hint: 'You have commits the remote does not' },
-  unpublished: { label: 'Unpublished', tone: 'info', hint: 'The branch has no upstream yet' },
   detached: { label: 'Detached HEAD', tone: 'warn', hint: 'Not on a branch' },
+  unpublished: { label: 'Unpublished', tone: 'info', hint: 'The branch has no upstream yet' },
   clean: { label: 'Clean', tone: 'muted', hint: 'Up to date and nothing to commit' },
 };
 const HEALTH_ORDER = Object.keys(HEALTH);
@@ -395,7 +406,7 @@ const VIEWS = {
           </select>
           <span class="hint">A fixed theme adds a light/dark switch to the sidebar.</span>
           <span class="form-label">Version</span>
-          <span class="form-value mono">${esc(state.version || 'unknown')}</span>
+          <span class="form-value version-row" id="version-row">${versionRow()}</span>
         </div>
         <div class="panel-actions"><button class="btn primary" type="submit">${icon('check')}Save settings</button></div>
       </form>
@@ -411,6 +422,7 @@ const VIEWS = {
           <button class="btn primary" type="submit">${icon('check')}Save tools</button>
         </div>
       </form>
+      ${desktopPanel()}
       <div class="panel">
         <h2>Transfer</h2><p>Move your repository list to another machine. Export writes a small JSON file; import reads it and clones every repository into a folder you choose.</p>
         <div class="panel-actions">
@@ -420,6 +432,72 @@ const VIEWS = {
       </div>`;
   },
 };
+
+function desktopPanel() {
+  const { registered, busy } = state.desktop;
+  const status = registered === null ? 'Checking…' : registered ? 'Registered' : 'Not registered';
+  const button = registered
+    ? `<button type="button" class="btn" data-action="desktop" data-desktop="unregister" ${busy ? 'disabled' : ''}>${icon('close')}Unregister</button>`
+    : `<button type="button" class="btn" data-action="desktop" data-desktop="register" ${busy || registered === null ? 'disabled' : ''}>${icon('check')}Register with system</button>`;
+  return `
+      <div class="panel" id="desktop-panel">
+        <h2>Desktop</h2><p>An entry in the ${state.platform === 'windows' ? 'Start menu' : 'application menu'}, and “Open in DevPanel” on folders. Installing registers it; this removes or restores it.</p>
+        <div class="panel-actions center"><span class="status-text">${status}</span><span class="spacer"></span>${button}</div>
+      </div>`;
+}
+
+/** Asks the host to register, unregister, or report the desktop registration. */
+async function desktop(action) {
+  state.desktop.busy = true;
+  refreshDesktopPanel();
+  try {
+    state.desktop.registered = await bridge.request({ type: 'desktop', action });
+  } catch (error) {
+    if (action !== 'status') toast(error.message, 'error');
+    else state.desktop.registered = false;
+  }
+  state.desktop.busy = false;
+  refreshDesktopPanel();
+}
+
+// The version, and a quiet update item beside it once a newer release exists.
+function versionRow() {
+  const { available, staged, busy } = state.update;
+  const version = `<span class="mono">${esc(state.version || 'unknown')}</span>`;
+  if (staged) return `${version}<span class="hint">${esc(staged)} is ready and starts next time DevPanel opens</span>`;
+  if (available) return `${version}<button type="button" class="link" data-action="update" ${busy ? 'disabled' : ''}>${busy ? 'Downloading…' : `Update to ${esc(available)}`}</button>`;
+  return `${version}<button type="button" class="link" data-action="check-update" ${busy ? 'disabled' : ''}>${busy ? 'Checking…' : 'Check for updates'}</button>`;
+}
+
+/** `check` runs once per start and on demand; `stage` downloads for the next start. Never installs on its own. */
+async function update(action) {
+  state.update.busy = true;
+  state.update.checked = true;
+  refreshVersionRow();
+  try {
+    const answer = await bridge.request({ type: 'update', action });
+    state.update.available = answer.available || null;
+    if (answer.staged) state.update.staged = answer.staged;
+    if (action === 'check' && !answer.available && state.update.manual) toast('DevPanel is up to date', 'success');
+  } catch (error) {
+    // A start-up check stays quiet: no network, or no release yet, is not news.
+    if (action === 'stage' || state.update.manual) toast(error.message, 'error');
+  }
+  state.update.busy = false;
+  state.update.manual = false;
+  refreshVersionRow();
+}
+
+function refreshVersionRow() {
+  const row = $('#version-row');
+  if (row) row.innerHTML = versionRow();
+}
+
+// The settings view keeps its forms between renders, so this panel redraws itself.
+function refreshDesktopPanel() {
+  const panel = $('#desktop-panel');
+  if (panel) panel.outerHTML = desktopPanel();
+}
 
 function welcome() {
   return `
@@ -491,6 +569,14 @@ function openButton(repo, size = 'sm') {
     </span>`;
 }
 
+// "Open in Commits", beside every Open button: the host picks the Commits view
+// from the verdict, so a problem opens where it is fixed (docs/design/commits.md).
+const NOTHING_TO_OPEN = new Set(['missing', 'not-a-repo']);
+function commitsButton(repo, size = 'sm') {
+  if (!state.commits || NOTHING_TO_OPEN.has(state.statuses.get(repo.id)?.health)) return '';
+  return `<button class="btn ${size} icon-only" data-action="open-in-commits" data-repo="${esc(repo.id)}" title="Open in Commits">${icon('graph')}</button>`;
+}
+
 function fixButtons(repo, entry, limit) {
   if (!entry) return '';
   const tone = HEALTH[entry.health].tone;
@@ -525,7 +611,7 @@ function card(repo) {
       <div class="meta">${statusSummary(s)}</div>
       ${activity}
       <div class="card-actions">
-        ${openButton(repo)}
+        ${openButton(repo)}${commitsButton(repo)}
         ${job ? '' : fixButtons(repo, entry, 2)}
       </div>
       ${job ? '<div class="progress"></div>' : ''}
@@ -543,7 +629,7 @@ function row(repo) {
       <div class="meta">${statusSummary(s)}</div>
       <div>${job ? `<span class="job-line"><span class="spinner"></span>${esc(job.title.split(' ')[0])}</span>` : badge(healthOf(repo))}</div>
       <div class="muted truncate" style="font-size:12.5px">${s?.last_commit ? `${esc(s.last_commit.subject)} · ${esc(ago(s.last_commit.time))}` : ''}</div>
-      <div class="card-actions" style="flex-wrap:nowrap">${job ? '' : fixButtons(repo, entry, 1)}${openButton(repo)}
+      <div class="card-actions" style="flex-wrap:nowrap">${job ? '' : fixButtons(repo, entry, 1)}${openButton(repo)}${commitsButton(repo)}
         ${favStar(repo)}
         <button class="btn sm ghost icon-only" data-action="repo-menu" data-repo="${esc(repo.id)}">${icon('more')}</button></div>
       ${job ? '<div class="progress" style="position:absolute;left:0;right:0;bottom:0"></div>' : ''}
@@ -636,7 +722,7 @@ function renderDrawer() {
     </div>
     <div class="drawer-body">
       ${entry && entry.fixes.length ? `<section><h3>Suggested</h3><div class="card-actions">${fixButtons(repo, entry, 9)}</div></section>` : ''}
-      <section><h3>Open in</h3><div class="tool-list">${state.workspace.tools.map((t) =>
+      <section><h3>Open in</h3>${state.commits && !NOTHING_TO_OPEN.has(entry?.health) ? `<button class="btn primary open-commits" data-action="open-in-commits" data-repo="${esc(repo.id)}">${icon('graph')}Open in Commits</button>` : ''}<div class="tool-list">${state.workspace.tools.map((t) =>
         `<button class="btn" data-action="open" data-repo="${esc(repo.id)}" data-tool="${esc(t.id)}">${icon(TOOL_ICON[t.launch.kind] || 'code')}${esc(t.name)}</button>`).join('')}</div></section>
       ${s && !s.is_repo ? '' : `<section><h3>Git</h3><div class="action-grid">
         ${action('git', 'cloudDown', 'Fetch', 'data-op="fetch"')}
@@ -1139,6 +1225,10 @@ const ACTIONS = {
   remove: (el) => removeModal(el.dataset.repo),
   favorite: (el) => toggleFavorite(el.dataset.repo),
   'export-repos': () => exportModal(),
+  desktop: (el) => desktop(el.dataset.desktop),
+  'open-in-commits': (el) => bridge.send({ type: 'open-in-commits', repo: el.dataset.repo, theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light' }),
+  update: () => update('stage'),
+  'check-update': () => { state.update.manual = true; update('check'); },
   'import-repos': () => importModal(),
   copy: (el) => copy(el.dataset.text),
   'open-url': (el) => bridge.send({ type: 'open-url', url: el.dataset.url }),
@@ -1162,7 +1252,7 @@ const ACTIONS = {
 
 // Clicks that only change local view state re-render; ones that open a menu
 // or modal manage their own DOM and must not be re-rendered away.
-const NO_RENDER = new Set(['open-menu', 'repo-menu', 'add-repo', 'commit', 'install', 'run', 'edit', 'remove', 'favorite', 'export-repos', 'import-repos', 'browse', 'add-tool', 'remove-tool', 'copy', 'open', 'open-url', 'fix']);
+const NO_RENDER = new Set(['open-in-commits', 'desktop', 'update', 'check-update', 'open-menu', 'repo-menu', 'add-repo', 'commit', 'install', 'run', 'edit', 'remove', 'favorite', 'export-repos', 'import-repos', 'browse', 'add-tool', 'remove-tool', 'copy', 'open', 'open-url', 'fix']);
 
 document.addEventListener('click', (event) => {
   const el = event.target.closest('[data-action]');

@@ -24,6 +24,12 @@ impl JsonStore {
         };
         Self::new(path)
     }
+
+    /// The folder the workspace file is in, where DevPanel keeps the other
+    /// files it writes for itself.
+    pub fn dir(&self) -> PathBuf {
+        self.path.parent().map(PathBuf::from).unwrap_or_default()
+    }
 }
 
 impl Store for JsonStore {

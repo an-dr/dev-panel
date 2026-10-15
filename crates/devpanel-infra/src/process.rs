@@ -2,10 +2,9 @@
 //! operations whose output the user watches.
 
 use std::collections::VecDeque;
-use std::ffi::OsString;
 use std::io::{BufReader, Read};
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use devpanel_core::ports::Output;
 use devpanel_core::{HubError, HubResult};
@@ -13,40 +12,8 @@ use devpanel_core::{HubError, HubResult};
 /// Lines kept to explain a failure.
 const TAIL_LINES: usize = 12;
 
-/// Environment variables this process changed for itself, with the values
-/// they had before, so children can be given the originals back.
-static ORIGINAL_ENV: OnceLock<Vec<(String, Option<OsString>)>> = OnceLock::new();
-
-/// Sets environment variables for this process only: every child started
-/// through this crate sees the values from before the call. Must run before
-/// any other thread starts.
-///
-/// The host needs X11 for its web panel even on a Wayland desktop, but an
-/// editor it opens should start the way it would from the user's own shell.
-pub fn override_own_env(vars: &[(&str, &str)]) {
-    let originals = vars.iter().map(|(name, _)| (name.to_string(), std::env::var_os(name))).collect();
-    if ORIGINAL_ENV.set(originals).is_err() {
-        return;
-    }
-    for (name, value) in vars {
-        std::env::set_var(name, value);
-    }
-}
-
-/// Readies a child: the user's original environment, and on Windows no
-/// console window flashing up for a background command.
-pub fn prepare(command: &mut Command) -> &mut Command {
-    for (name, value) in ORIGINAL_ENV.get().into_iter().flatten() {
-        match value {
-            Some(value) => command.env(name, value),
-            None => command.env_remove(name),
-        };
-    }
-    command
-}
-
-/// Like [`prepare`], and hides the console window of a command that runs in
-/// the background. No-op for the window part outside Windows.
+/// Hides the console window of a command that runs in the background.
+/// No-op outside Windows.
 pub fn prepare_hidden(command: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
@@ -54,7 +21,7 @@ pub fn prepare_hidden(command: &mut Command) -> &mut Command {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    prepare(command)
+    command
 }
 
 /// Runs `command` and returns its trimmed stdout, or `None` on any failure.
@@ -141,18 +108,6 @@ fn flush(pending: &mut Vec<u8>, emit: &mut impl FnMut(&str)) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The only test in this binary that calls `override_own_env`, which can
-    /// take effect once per process.
-    #[cfg(unix)]
-    #[test]
-    fn children_get_the_environment_from_before_the_override() {
-        override_own_env(&[("DEVPANEL_TEST_OVERRIDE", "host-only")]);
-        assert_eq!(std::env::var("DEVPANEL_TEST_OVERRIDE").as_deref(), Ok("host-only"));
-        let mut command = Command::new("sh");
-        command.args(["-c", "echo ${DEVPANEL_TEST_OVERRIDE-unset}"]);
-        assert_eq!(capture(command).as_deref(), Some("unset"));
-    }
 
     #[test]
     fn carriage_returns_and_newlines_both_end_a_line() {

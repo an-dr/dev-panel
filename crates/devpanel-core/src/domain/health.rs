@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use super::RepoStatus;
 
-/// The one-word verdict on a repository, worst first.
+/// The one-word verdict on a repository, worst first. The verdicts, their
+/// order and their rules are Commits' repository-health contract;
+/// `tests/health_vectors.rs` holds this type to it.
 ///
 /// A repository can be several of these at once (dirty *and* behind); the
 /// dashboard shows the most urgent, and [`Health::fixes`] lists every action
@@ -18,8 +20,8 @@ pub enum Health {
     Behind,
     Dirty,
     Ahead,
-    Unpublished,
     Detached,
+    Unpublished,
     Clean,
 }
 

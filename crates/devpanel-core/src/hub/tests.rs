@@ -124,9 +124,17 @@ impl Store for FakeStore {
 struct FakeLauncher(Mutex<Vec<String>>);
 
 impl Launcher for FakeLauncher {
-    fn launch(&self, tool: &Tool, path: &Path) -> HubResult<()> {
-        self.0.lock().unwrap().push(format!("{} {}", tool.id.0, path.display()));
+    fn launch(&self, tool: &Tool, path: &Path, extra_args: &[String]) -> HubResult<()> {
+        let mut line = format!("{} {}", tool.id.0, path.display());
+        for arg in extra_args {
+            line.push(' ');
+            line.push_str(arg);
+        }
+        self.0.lock().unwrap().push(line);
         Ok(())
+    }
+    fn is_available(&self, _: &Tool) -> bool {
+        true
     }
 }
 
@@ -140,6 +148,33 @@ impl Shell for FakeShell {
     }
 }
 
+#[derive(Default)]
+struct FakeWatch(Mutex<Vec<PathBuf>>);
+
+impl RepoWatch for FakeWatch {
+    fn watch(&self, path: &Path, _: Box<dyn Fn() + Send>) -> WatchHandle {
+        self.0.lock().unwrap().push(path.to_path_buf());
+        WatchHandle::new(())
+    }
+}
+
+/// Remembers every published list; `fail` makes each publish fail.
+#[derive(Default)]
+struct FakeSource {
+    published: Mutex<Vec<Vec<String>>>,
+    fail: bool,
+}
+
+impl RepoSource for FakeSource {
+    fn publish(&self, repos: &[Repo]) -> HubResult<()> {
+        self.published.lock().unwrap().push(repos.iter().map(|r| r.name.clone()).collect());
+        if self.fail {
+            return Err(HubError::Storage("read-only".into()));
+        }
+        Ok(())
+    }
+}
+
 struct Fixture {
     hub: Hub,
     git: Arc<FakeGit>,
@@ -147,22 +182,30 @@ struct Fixture {
     shell: Arc<FakeShell>,
     store: Arc<FakeStore>,
     fs: Arc<FakeFs>,
+    source: Arc<FakeSource>,
 }
 
 fn fixture_with(git: FakeGit, fs: FakeFs, store: FakeStore) -> Fixture {
+    fixture_with_source(git, fs, store, FakeSource::default())
+}
+
+fn fixture_with_source(git: FakeGit, fs: FakeFs, store: FakeStore, source: FakeSource) -> Fixture {
     let git = Arc::new(git);
     let launcher = Arc::new(FakeLauncher::default());
     let shell = Arc::new(FakeShell::default());
     let store = Arc::new(store);
     let fs = Arc::new(fs);
+    let source = Arc::new(source);
     let ports = Ports {
         git: git.clone(),
         shell: shell.clone(),
         launcher: launcher.clone(),
         fs: fs.clone(),
         store: store.clone(),
+        watch: Arc::new(FakeWatch::default()),
+        source: source.clone(),
     };
-    Fixture { hub: Hub::open(ports, Platform::Unix).unwrap(), git, launcher, shell, store, fs }
+    Fixture { hub: Hub::open(ports, Platform::Unix).unwrap(), git, launcher, shell, store, fs, source }
 }
 
 fn fixture(git: FakeGit) -> Fixture {
@@ -210,6 +253,117 @@ fn scan_skips_repositories_already_tracked() {
     f.hub.add_existing(Path::new("/home/u/a")).unwrap();
     let added = f.hub.scan(Path::new("/home/u")).unwrap();
     assert_eq!(added.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["b"]);
+}
+
+#[test]
+fn add_or_scan_tracks_a_repository_folder_itself() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let repos = f.hub.add_or_scan(Path::new("~/a")).unwrap();
+    assert_eq!(repos.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["a"]);
+    assert_eq!(f.hub.workspace().repos.len(), 1);
+}
+
+#[test]
+fn add_or_scan_returns_an_already_tracked_repository() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let first = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    assert_eq!(f.hub.add_or_scan(Path::new("/home/u/a")).unwrap(), vec![first]);
+    assert_eq!(f.hub.workspace().repos.len(), 1);
+}
+
+#[test]
+fn add_or_scan_of_a_folder_returns_every_repository_under_it() {
+    let git = FakeGit::default().with_repo("/home/u/a", None).with_repo("/home/u/b", None);
+    let fs = FakeFs { repos_under: vec!["/home/u/a".into(), "/home/u/b".into()], ..FakeFs::default() };
+    let f = fixture_with(git, fs, FakeStore::default());
+    f.hub.add_existing(Path::new("/home/u/b")).unwrap();
+    let repos = f.hub.add_or_scan(Path::new("/home/u")).unwrap();
+    assert_eq!(repos.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+    assert_eq!(f.hub.workspace().repos.len(), 2);
+}
+
+#[test]
+fn add_or_scan_of_a_missing_folder_is_refused() {
+    let f = fixture(FakeGit::default());
+    assert!(matches!(f.hub.add_or_scan(Path::new("/nowhere")), Err(HubError::Invalid(_))));
+}
+
+#[test]
+fn every_saved_change_moves_the_revision() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let start = f.hub.revision();
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    f.hub.set_favorite(&repo.id, true).unwrap();
+    assert_eq!(f.hub.revision(), start + 2);
+}
+
+#[test]
+fn a_failed_save_keeps_the_revision() {
+    let git = FakeGit::default().with_repo("/home/u/a", None);
+    let f = fixture_with(git, FakeFs::default(), FakeStore { fail: true, ..FakeStore::default() });
+    let _ = f.hub.add_existing(Path::new("/home/u/a"));
+    assert_eq!(f.hub.revision(), 0);
+}
+
+#[test]
+fn a_tracked_repository_is_watched_at_its_path() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    assert!(f.hub.watch(&repo.id, Box::new(|| {})).unwrap().is_active());
+    assert!(f.hub.watch(&RepoId("r9".into()), Box::new(|| {})).is_err());
+}
+
+#[test]
+fn a_dirty_repository_opens_in_commits_on_its_changes() {
+    let mut git = FakeGit::default().with_repo("/home/u/a", None);
+    git.statuses.get_mut().unwrap().get_mut(Path::new("/home/u/a")).unwrap().unstaged = 2;
+    let f = fixture(git);
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    f.hub.open_in_commits(&repo.id, ResolvedTheme::Light, Some(Path::new("/cfg/theme.json"))).unwrap();
+    assert_eq!(
+        *f.launcher.0.lock().unwrap(),
+        ["commits /home/u/a --show changes --theme light --theme-file /cfg/theme.json"]
+    );
+}
+
+#[test]
+fn a_missing_repository_does_not_open_in_commits() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    f.git.statuses.lock().unwrap().clear();
+    assert!(matches!(f.hub.open_in_commits(&repo.id, ResolvedTheme::Dark, None), Err(HubError::Invalid(_))));
+    assert!(f.launcher.0.lock().unwrap().is_empty());
+}
+
+#[test]
+fn without_the_commits_tool_there_is_nothing_to_open_in() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    assert!(f.hub.commits_available());
+    let others = f.hub.workspace().tools.into_iter().filter(|t| t.id.0 != ToolId::COMMITS).collect();
+    f.hub.save_tools(others).unwrap();
+    assert!(!f.hub.commits_available());
+    assert!(matches!(f.hub.open_in_commits(&repo.id, ResolvedTheme::Dark, None), Err(HubError::NotFound(_))));
+}
+
+#[test]
+fn every_saved_change_republishes_the_repositories() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    f.hub.update_repo(&repo.id, RepoEdit { name: "renamed".into(), ..RepoEdit::default() }).unwrap();
+    f.hub.remove(&repo.id).unwrap();
+    let published = f.source.published.lock().unwrap().clone();
+    // At start, then after adding, renaming and removing.
+    assert_eq!(published, [vec![], vec!["a".to_string()], vec!["renamed".to_string()], vec![]]);
+}
+
+#[test]
+fn a_failing_source_does_not_fail_the_change() {
+    let git = FakeGit::default().with_repo("/home/u/a", None);
+    let source = FakeSource { fail: true, ..FakeSource::default() };
+    let f = fixture_with_source(git, FakeFs::default(), FakeStore::default(), source);
+    assert!(f.hub.add_existing(Path::new("/home/u/a")).is_ok());
+    assert_eq!(f.hub.workspace().repos.len(), 1);
 }
 
 #[test]

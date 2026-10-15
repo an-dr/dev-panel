@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct ToolId(pub String);
 
+impl ToolId {
+    /// The Commits tool: DevPanel's git client, which problems open in.
+    pub const COMMITS: &'static str = "commits";
+}
+
 /// How a tool is started for a repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -38,7 +43,7 @@ impl Tool {
             tool("vscode", "VS Code", Launch::Program { program: "code".into(), args: vec!["{path}".into()] }),
             tool("claude", "Claude Code", Launch::Terminal { command: Some("claude".into()) }),
             tool(
-                "commits",
+                ToolId::COMMITS,
                 "Commits",
                 Launch::Program { program: "~/.commits/app/commits".into(), args: vec!["{path}".into()] },
             ),

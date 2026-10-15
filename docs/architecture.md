@@ -15,7 +15,7 @@ graph TD
     subgraph core["crates/devpanel-core — no I/O"]
         Hub["Hub<br/>use cases"]
         Domain["domain<br/>Repo · RepoStatus · Health · Tool · install recipes"]
-        Ports["ports<br/>Git · Shell · Launcher · FileSystem · Store"]
+        Ports["ports<br/>Git · Shell · Launcher · FileSystem · Store · RepoWatch · RepoSource"]
     end
     subgraph infra["crates/devpanel-infra — adapters"]
         GitCli["GitCli"]
@@ -23,8 +23,12 @@ graph TD
         Launcher["SystemLauncher"]
         Fs["LocalFileSystem"]
         Store["JsonStore"]
+        Watch["GitWatch"]
+        Source["CommitsSourceFile"]
     end
     Bones["bones engine<br/>window · web panel · os module · bus"]
+    Launch["bones-kernel-launch<br/>programs · terminals"]
+    WatchLib["bones-kernel-watch<br/>debounced folder watching"]
 
     Page <-->|JSON over the web panel| Bones
     Bones <-->|bus| Dashboard
@@ -35,8 +39,12 @@ graph TD
     GitCli -.implements.-> Ports
     Shell -.implements.-> Ports
     Launcher -.implements.-> Ports
+    Launcher --> Launch
     Fs -.implements.-> Ports
     Store -.implements.-> Ports
+    Watch -.implements.-> Ports
+    Source -.implements.-> Ports
+    Watch --> WatchLib
     Main --> Dashboard
     Main --> infra
 ```
@@ -44,14 +52,22 @@ graph TD
 | Crate | Holds | Depends on |
 | --- | --- | --- |
 | `devpanel-core` | Entities, the rules that judge them, the `Hub` use cases, and the port traits | `serde` only |
-| `devpanel-infra` | One adapter per port: `git` CLI, platform shell, tool launcher, filesystem, JSON file | `devpanel-core` |
-| `devpanel` (app) | The bones module, the controller, the page protocol, the page itself, and `main` | all of the above and `bones-engine` |
+| `devpanel-infra` | One adapter per port: `git` CLI, platform shell, tool launcher, filesystem, JSON file, repository watcher, Commits' repository source | `devpanel-core`, and bones' plain `bones-kernel-launch` and `bones-kernel-watch` libraries, never the engine |
+| `devpanel` (app) | The bones module, the controller, the page protocol, the page itself, and `main` | all of the above, `bones-kernel` and `bones-launcher` |
 
 The dependency rule points inward. `devpanel-core` names no adapter and no engine, so every rule in it is tested with in-memory fakes. Only `main.rs` knows every concrete type; only `dashboard.rs` speaks the bones bus.
 
 ## Why the app is a native module
 
 The bones way to build a product is a sandboxed WASM extension. DevPanel's work is the opposite of sandboxed — run `git`, launch editors, read arbitrary folders — so the whole product lives in one native module, and the page is the only UI ([ADR-001](adr/ADR-001-one-native-module-no-wasm-guest.md)). Everything the engine already offers is used rather than rebuilt: the window, the web panel, the folder picker, opening URLs, and the clipboard via the `os` module.
+
+## Outside changes
+
+The controller keeps one `RepoWatch` watch per tracked repository, matched to the workspace whenever `Hub::revision` moves. `GitWatch` watches the top of `.git` and `.git/refs`, not the working tree, and reports a change once `.git` has been quiet for 500 ms; the controller then re-reads that repository's status on its next tick. Lock files alone are not a change, and DevPanel runs git with `GIT_OPTIONAL_LOCKS=0` so its own status reads never rewrite the index and wake the watcher. Focus and interval refreshes stay, for what a watch cannot see: an edited file before it is staged, a worktree whose `.git` is a file.
+
+## One window
+
+`main` claims the single instance before the engine opens a window, and an `--install` never claims it. When the claim itself fails, DevPanel starts as a window of its own. A later `devpanel <folder>` hands its arguments to the running process and exits; bones raises the window and publishes the handoff as `instance/launched`, which `dashboard.rs` passes to the controller. The startup folder takes the same path once the page is ready: `Hub::add_or_scan` tracks it, and a `select` event opens the first repository's drawer.
 
 ## An action, end to end
 
@@ -99,4 +115,4 @@ The workspace — tracked repositories, tools and settings — is one JSON docum
 
 ## Linux display
 
-bones embeds GTK webviews as children of the SDL window, which only works on X11. `main` points both SDL and GTK at X11 (Xwayland on Wayland desktops), overriding a session-wide `GDK_BACKEND=wayland`. Programs DevPanel launches get the user's original values back, so an editor starts exactly as it would from a shell.
+bones embeds GTK webviews as children of the SDL window, which only works on X11. bones selects X11 (Xwayland on Wayland desktops) for its own SDL and GTK without changing the process environment, so DevPanel does nothing here, and a program it launches starts exactly as it would from a shell.

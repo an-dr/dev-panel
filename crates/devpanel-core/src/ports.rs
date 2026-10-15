@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::domain::{RepoList, RepoStatus, Tool, Workspace};
+use crate::domain::{Repo, RepoList, RepoStatus, Tool, Workspace};
 use crate::HubResult;
 
 /// Receives the output of a long-running command line by line, so the user
@@ -42,7 +42,12 @@ pub trait Shell: Send + Sync {
 
 /// Starts a tool for a repository and returns without waiting for it.
 pub trait Launcher: Send + Sync {
-    fn launch(&self, tool: &Tool, path: &Path) -> HubResult<()>;
+    /// `extra_args` follow the tool's own arguments; only a program tool
+    /// takes them.
+    fn launch(&self, tool: &Tool, path: &Path, extra_args: &[String]) -> HubResult<()>;
+    /// Whether `tool` could start: a program tool's program resolves.
+    /// Starts nothing.
+    fn is_available(&self, tool: &Tool) -> bool;
 }
 
 pub trait FileSystem: Send + Sync {
@@ -61,6 +66,40 @@ pub trait FileSystem: Send + Sync {
     fn read_repo_list(&self, path: &Path) -> HubResult<RepoList>;
     /// Writes a repository list to `path`, creating parent folders as needed.
     fn write_repo_list(&self, path: &Path, list: &RepoList) -> HubResult<()>;
+}
+
+/// Keeps a [`RepoWatch`] watch alive; dropping it stops the watch.
+pub struct WatchHandle(Option<Box<dyn Send>>);
+
+impl WatchHandle {
+    /// A live watch, stopped when `guard` is dropped.
+    pub fn new(guard: impl Send + 'static) -> Self {
+        Self(Some(Box::new(guard)))
+    }
+
+    /// No watch: the repository could not be watched.
+    pub fn inactive() -> Self {
+        Self(None)
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+/// Tells DevPanel that a repository changed outside it.
+pub trait RepoWatch: Send + Sync {
+    /// Calls `on_change`, on a thread of the adapter's, after the git state
+    /// of the repository at `path` changed and settled. A repository that
+    /// cannot be watched gets an inactive handle; the focus and interval
+    /// refreshes still cover it.
+    fn watch(&self, path: &Path, on_change: Box<dyn Fn() + Send>) -> WatchHandle;
+}
+
+/// Offers the tracked repositories to another program, such as Commits'
+/// repository selector. A failure here never fails the change that caused it.
+pub trait RepoSource: Send + Sync {
+    fn publish(&self, repos: &[Repo]) -> HubResult<()>;
 }
 
 pub trait Store: Send + Sync {

@@ -1,6 +1,8 @@
 # Colours
 
-DevPanel's palette and the rule for when something gets colour. Commits' DevPanel theme preset follows this page, so a change here is a change for both apps. The values live as tokens at the top of [style.css](../../apps/devpanel/web/style.css); this page says what they mean.
+DevPanel's palette and the rule for when something gets colour. The values live as tokens at the top of [style.css](../../apps/devpanel/web/style.css); this page says what they mean.
+
+DevPanel hands the same palette to Commits as a theme file in Commits' format, [commits-theme.json](../../apps/devpanel/assets/commits-theme.json), written beside the workspace file at startup and passed with every "Open in Commits". It is generated from this page by hand: change a colour here, then there. A test holds its urgency colours to the page's tokens, and Commits' own [theme-file format](https://github.com/an-dr/commits/blob/main/docs/themes.md) decides its keys. The light theme's selection is the aqua `#c9f0ea`; borders and the dark selection are the page's `color-mix` values worked out, since a theme file takes plain colours.
 
 ## Brand
 

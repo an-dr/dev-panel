@@ -2,7 +2,7 @@
 //! object with a `type`; requests that expect an answer carry a `request`
 //! number that the matching [`Event::Reply`] echoes.
 
-use devpanel_core::domain::{Fix, Health, RepoId, RepoStatus, Settings, Tool, ToolId, Workspace};
+use devpanel_core::domain::{Fix, Health, RepoId, RepoStatus, ResolvedTheme, Settings, Tool, ToolId, Workspace};
 use serde::{Deserialize, Serialize};
 
 /// Page → host.
@@ -21,6 +21,9 @@ pub enum Action {
     Fix { repo: RepoId, fix: Fix, message: Option<String> },
     Commit { repo: RepoId, message: String },
     Open { repo: RepoId, tool: Option<ToolId> },
+    /// Opens the repository in Commits on the view its verdict calls for, in
+    /// the theme the page is showing.
+    OpenInCommits { repo: RepoId, theme: ResolvedTheme },
     AddExisting { path: String },
     Scan { path: String },
     Clone { url: String, parent: Option<String> },
@@ -39,8 +42,29 @@ pub enum Action {
     SaveSettings { settings: Settings },
     SaveTools { tools: Vec<Tool> },
     PickFolder { request: u64 },
+    /// Registers DevPanel with the desktop, removes it, or asks which it is;
+    /// answered with a `reply` whose data is whether it is registered.
+    Desktop { request: u64, action: DesktopAction },
+    /// Looks for a newer release, or downloads it for the next start;
+    /// answered with `{available}`, `{staged}` or `{}` when up to date.
+    Update { request: u64, action: UpdateAction },
     OpenUrl { url: String },
     Copy { text: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DesktopAction {
+    Register,
+    Unregister,
+    Status,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UpdateAction {
+    Check,
+    Stage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -55,12 +79,16 @@ pub enum JobState {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Event {
-    Workspace { workspace: Workspace, platform: &'static str, version: &'static str },
+    /// `commits`: whether "Open in Commits" can work right now.
+    Workspace { workspace: Workspace, platform: &'static str, version: &'static str, commits: bool },
     Status { repo: RepoId, status: RepoStatus, health: Health, fixes: Vec<Fix> },
     Job { job: u64, repo: Option<RepoId>, title: String, state: JobState, error: Option<String> },
     Log { job: u64, line: String },
     Reply { request: u64, ok: bool, data: serde_json::Value, error: Option<String> },
     Toast { level: &'static str, message: String },
+    /// Select this repository and open its drawer: the result of
+    /// `devpanel <path>`, at startup or from a later launch.
+    Select { repo: RepoId },
 }
 
 impl Event {
@@ -91,6 +119,37 @@ mod tests {
         assert!(matches!(action, Action::Refresh { repo: None }));
         let action: Action = serde_json::from_str(r#"{"type":"add-existing","path":"~/x"}"#).unwrap();
         assert!(matches!(action, Action::AddExisting { .. }));
+        let action: Action = serde_json::from_str(r#"{"type":"desktop","request":3,"action":"unregister"}"#).unwrap();
+        assert!(matches!(action, Action::Desktop { request: 3, action: DesktopAction::Unregister }));
+        let action: Action = serde_json::from_str(r#"{"type":"open-in-commits","repo":"r2","theme":"dark"}"#).unwrap();
+        assert!(matches!(action, Action::OpenInCommits { theme: ResolvedTheme::Dark, .. }));
+        let action: Action = serde_json::from_str(r#"{"type":"update","request":4,"action":"stage"}"#).unwrap();
+        assert!(matches!(action, Action::Update { request: 4, action: UpdateAction::Stage }));
+    }
+
+    /// The page's labels, in the page's order, are Commits' repository-health
+    /// contract: the vectors file holds its verdict list.
+    #[test]
+    fn the_page_labels_every_verdict_as_the_contract_does() {
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../../../crates/devpanel-core/tests/repository-health.vectors.json")).unwrap();
+        let contract: Vec<(String, String)> = vectors["verdicts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| (v["id"].as_str().unwrap().to_string(), v["label"].as_str().unwrap().to_string()))
+            .collect();
+        let page = include_str!("../web/app.js");
+        let table = &page[page.find("const HEALTH = {").unwrap()..];
+        let table = &table[..table.find("\n};").unwrap()];
+        let ours: Vec<(String, String)> = table
+            .lines()
+            .filter_map(|line| {
+                let (key, rest) = line.trim().split_once(": { label: '")?;
+                Some((key.trim_matches('\'').to_string(), rest.split('\'').next()?.to_string()))
+            })
+            .collect();
+        assert_eq!(ours, contract);
     }
 
     #[test]

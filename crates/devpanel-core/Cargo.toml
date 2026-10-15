@@ -7,3 +7,7 @@ description = "Domain model and use cases of DevPanel. No I/O: everything outsid
 
 [dependencies]
 serde.workspace = true
+
+[dev-dependencies]
+# Reads Commits' health vectors (tests/health_vectors.rs).
+serde_json.workspace = true

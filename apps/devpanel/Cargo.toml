@@ -13,18 +13,27 @@ name = "devpanel-app"
 path = "src/main.rs"
 
 # The permanent entry point at the install root, installed there as
-# `devpanel`. It starts the newest version folder's app (bones-upgrader).
+# `devpanel`. It starts the newest version folder's app (bones-launcher).
 [[bin]]
 name = "devpanel-launcher"
 path = "src/bin/devpanel-launcher.rs"
+
+[build-dependencies]
+# Embeds assets/devpanel.ico into the Windows executables (build.rs).
+winresource = "0.1"
 
 [dependencies]
 devpanel-core = { path = "../../crates/devpanel-core" }
 devpanel-infra = { path = "../../crates/devpanel-infra" }
 # The app draws its interface in a web panel and uses the os module for
 # folder pickers and the browser; it needs neither audio nor game-core.
-bones-engine = { path = "../../vendor/bones/crates/bones-engine", default-features = false, features = ["web", "os"] }
-bones-upgrader = { path = "../../vendor/bones/crates/bones-upgrader" }
+# `instance` keeps one window per user, `desktop` registers it with the
+# system, `upgrade` brings the install and update mechanism behind `--install`.
+bones-kernel = { path = "../../vendor/bones/crates/bones-kernel", default-features = false, features = ["web", "os", "instance", "desktop", "upgrade"] }
+# The launcher binary's whole mechanism.
+bones-launcher = { path = "../../vendor/bones/crates/bones-launcher" }
+# The launcher's `--version` reads version folder names with it.
+bones-versioning = { path = "../../vendor/bones/crates/bones-versioning" }
 serde.workspace = true
 serde_json.workspace = true
 

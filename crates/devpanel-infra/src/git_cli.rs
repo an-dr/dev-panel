@@ -20,6 +20,9 @@ impl GitCli {
         let mut command = Command::new("git");
         command.arg("-C").arg(path).args(["-c", "color.ui=false"]);
         command.env("GIT_TERMINAL_PROMPT", "0");
+        // A status read must not rewrite the index: the repository watcher
+        // would take that for a change and read the status again, forever.
+        command.env("GIT_OPTIONAL_LOCKS", "0");
         if std::env::var_os("GIT_SSH_COMMAND").is_none() {
             command.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
         }

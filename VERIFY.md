@@ -19,9 +19,9 @@ Everything decided without asking. Each item says what was assumed; tick it, or 
 
 ## Installation
 
-- [ ] **Same layout as Commits, built only on bones.** Launcher plus version folders through `bones-upgrader`; `install.ps1` calls the built app's `--install`, which uses bones-upgrader's own `install_fresh` / `copy_version_from_dir` instead of a PowerShell copy of that logic as Commits' script has. Nothing was copied from Commits, so nothing needed moving into bones. Tested on Linux with a scratch `HOME`: fresh install, second install pushing `0.1.0-<hash>`, launcher starting the newest version.
+- [ ] **Same layout as Commits, built only on bones.** Launcher plus version folders through bones (`bones-launcher` and the kernel's upgrade module); `install.ps1` calls the built app's `--install`, which uses the upgrade module's own install instead of a PowerShell copy of that logic as Commits' script has. Nothing was copied from Commits, so nothing needed moving into bones. Tested on Linux with a scratch `HOME`: fresh install, second install pushing `0.1.0-<hash>`, launcher starting the newest version.
 - [ ] **Self-update from a hosted release is not implemented.** Commits' `UpdaterModule` (manifest check, download, in-app Update) is Commits code. Per your rule it would move into bones first. Do you want that, and where would DevPanel's releases be published (GitHub Releases of `an-dr/dev-panel`)?
-- [ ] **"Register with system" is not in the app.** The install script adds a `.desktop` entry (Linux) or a Start menu shortcut (Windows). Commits' `desktop-integration` crate (file-manager "Open in …" verbs, registry entries) would be the thing to move into bones and share. The bones repository runs its own workflow with your approvals, so I did not start that change. Say the word and I will.
+- [x] **"Register with system" is in the app.** `--install` registers DevPanel through bones' desktop module (menu entry and "Open in DevPanel" on folders), and Settings → Desktop unregisters or registers it again. The PowerShell `.desktop` and shortcut writing is gone.
 
 ## bones
 
@@ -38,7 +38,7 @@ Everything decided without asking. Each item says what was assumed; tick it, or 
 ## Releases
 
 - [ ] **Native CI runners instead of Commits' Docker cross-build** ([ci.md](docs/ci.md)): each platform builds and tests on its own runner, including `windows-11-arm`, which is free for public repositories.
-- [ ] **Release contents:** per platform, one zip holding `devpanel/` in the install layout, plus `SHA256SUMS`. No bones-upgrader update manifest yet, since there is no in-app updater to read one.
+- [ ] **Release contents:** per platform, one zip holding `devpanel/` in the install layout, plus `SHA256SUMS`. No update manifest yet, since there is no in-app updater to read one.
 - [ ] **Linux binaries link the system's WebKitGTK 4.1 and GTK 3** instead of bundling them. No AppImage or .deb. Wanted?
 - [ ] **Release binaries are stripped** (`[profile.release] strip = true`).
 - [ ] **License file added**: MIT, copyright Andrei Gramakov 2026.

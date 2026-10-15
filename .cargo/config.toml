@@ -1,7 +1,8 @@
 [env]
-# Who bones-upgrader builds for: the install folder (~/.devpanel/app), the
+# Who the bones upgrade module and launcher build for: the install folder (~/.devpanel/app), the
 # variable that redirects it, and the two executable names. Read at compile
-# time, so the launcher and the app always agree.
+# time (apps/devpanel/src/installation.rs and the launcher binary), so the
+# launcher and the app always agree.
 #
 # UPGRADER_LAUNCHER_VERSION moves with [workspace.package] version in
 # Cargo.toml; `devpanel --version` reports both.
@@ -9,4 +10,9 @@ UPGRADER_INSTALL_DIR_NAME = ".devpanel"
 UPGRADER_INSTALL_ENV_VAR = "DEVPANEL_INSTALL_DIR"
 UPGRADER_LAUNCHER_STEM = "devpanel"
 UPGRADER_APP_STEM = "devpanel-app"
-UPGRADER_LAUNCHER_VERSION = "0.3.0"
+UPGRADER_LAUNCHER_VERSION = "0.4.0"
+
+# The Commits release every DevPanel release bundles (docs/installation.md,
+# ADR-003). scripts/fetch-commits.ps1 reads it; the installer reads the
+# version from the bundled manifest instead, so this is the only copy.
+COMMITS_VERSION = "1.9.1"

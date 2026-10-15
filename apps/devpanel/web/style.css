@@ -412,6 +412,11 @@ a { color: var(--accent); }
 .form label, .form .form-label { color: var(--text-2); font-weight: 500; }
 .form .form-value { color: var(--text-2); }
 .form .hint { grid-column: 2; color: var(--muted); font-size: 12px; margin-top: -8px; }
+.version-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.version-row .hint { margin: 0; }
+.link { background: none; border: 0; padding: 0; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.link:hover:not(:disabled) { text-decoration-thickness: 2px; }
+.link:disabled { color: var(--muted); cursor: default; text-decoration: none; }
 .field {
   height: 36px; width: 100%; padding: 0 11px; border-radius: var(--radius-sm);
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text); outline: none;
@@ -425,6 +430,9 @@ textarea.field { height: auto; min-height: 90px; padding: 9px 11px; resize: vert
 .tools-table td { padding: 0 4px; vertical-align: middle; }
 .tools-table .field { height: 32px; }
 .panel-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.panel-actions.center { align-items: center; }
+.drawer-body .open-commits { width: 100%; justify-content: center; margin-bottom: 8px; }
+.panel-actions .status-text { color: var(--text-2); font-weight: 600; }
 
 /* ---- menus, modals, toasts --------------------------------------------- */
 

@@ -36,7 +36,9 @@ A folder inside another repository is *not a repository*: the working tree's top
 
 ### Verdicts
 
-The names other programs see. The id is what the [protocol](protocol.md) carries, the label is what the user reads, and the urgency picks the colour ([colours.md](colours.md#dark-cockpit)). Commits shows the same verdicts with the same labels, so this table is a contract: change it here first, and Commits follows.
+The verdicts, their order, rules, labels and urgencies are Commits' [repository-health contract](https://github.com/an-dr/commits/blob/main/docs/repository-health.md), and that page is the authority. This table describes what DevPanel shows: the id is what the [protocol](protocol.md) carries, the label is what the user reads, and the urgency picks the colour ([colours.md](colours.md#dark-cockpit)).
+
+DevPanel keeps its own implementation, `Health::of`, and proves it matches by running Commits' conformance vectors: `crates/devpanel-core/tests/health_vectors.rs` checks every case's verdict and the verdict order, and a test in `protocol.rs` checks the page's labels. A copy of the vectors sits beside that test, with the Commits release it came from. Any mismatch is DevPanel's bug.
 
 | Id | Label | Urgency |
 | --- | --- | --- |

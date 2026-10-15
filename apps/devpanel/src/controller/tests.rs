@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use devpanel_core::domain::{Health, Platform};
-use devpanel_infra::{GitCli, JsonStore, LocalFileSystem, SystemLauncher, SystemShell};
+use devpanel_infra::{CommitsSourceFile, GitCli, GitWatch, JsonStore, LocalFileSystem, SystemLauncher, SystemShell};
 
 use super::*;
 
@@ -16,6 +16,8 @@ fn controller(config: &Path) -> Controller {
         launcher: Arc::new(SystemLauncher),
         fs: Arc::new(LocalFileSystem),
         store: Arc::new(JsonStore::new(config.join("workspace.json"))),
+        watch: Arc::new(GitWatch::new()),
+        source: Arc::new(CommitsSourceFile::in_dir(config.join("sources"))),
     };
     Controller::new(Arc::new(Hub::open(ports, Platform::current()).unwrap()))
 }
@@ -55,8 +57,65 @@ fn adding_a_repository_sends_the_workspace_and_its_status() {
 
     assert!(events.iter().any(|e| matches!(e, Event::Workspace { workspace, .. } if workspace.repos.len() == 1)));
     assert!(events.iter().any(|e| matches!(e, Event::Workspace { version, .. } if *version == env!("CARGO_PKG_VERSION"))));
+    // Whether Commits is installed on the machine running the tests is not
+    // fixed, so only the field's presence is checked here; the hub tests
+    // cover what decides it.
+    let json = serde_json::to_value(events.iter().find(|e| matches!(e, Event::Workspace { .. })).unwrap()).unwrap();
+    assert!(json["commits"].is_boolean());
     let Some(Event::Status { health, .. }) = events.last() else { unreachable!() };
     assert_eq!(*health, Health::Clean);
+}
+
+#[test]
+fn a_startup_folder_is_opened_and_selected_once_the_page_is_ready() {
+    let root = tempfile::tempdir().unwrap();
+    init_repo(&root.path().join("clones").join("one"));
+    init_repo(&root.path().join("clones").join("two"));
+    let controller = controller(root.path()).with_startup_path(Some(root.path().join("clones")));
+
+    controller.handle(Action::Ready);
+    let events = wait_for(&controller, |e| matches!(e, Event::Select { .. }));
+
+    let Some(Event::Workspace { workspace, .. }) = events.iter().rev().find(|e| matches!(e, Event::Workspace { .. })) else {
+        panic!("no workspace in {events:?}");
+    };
+    assert_eq!(workspace.repos.len(), 2);
+    let Some(Event::Select { repo }) = events.last() else { unreachable!() };
+    assert!(workspace.repos.iter().any(|r| &r.id == repo));
+}
+
+#[test]
+fn a_commit_made_outside_devpanel_refreshes_that_repository() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("project");
+    init_repo(&repo);
+    let mut controller = controller(root.path());
+    controller.handle(Action::AddExisting { path: repo.to_string_lossy().into_owned() });
+    wait_for(&controller, |e| matches!(e, Event::Status { .. }));
+    controller.tick(Instant::now());
+
+    let ok = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "outside"])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        controller.tick(Instant::now());
+        let events = controller.drain();
+        let seen = events.iter().any(|e| {
+            matches!(e, Event::Status { status, .. } if status.last_commit.as_ref().is_some_and(|c| c.subject == "outside"))
+        });
+        if seen {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no refreshed status after the outside commit");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]

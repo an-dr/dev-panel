@@ -61,8 +61,9 @@
   }
 
   const emit = (events) => setTimeout(() => window.dispatchEvent(new CustomEvent('bones-message', { detail: JSON.stringify(events) })), 30);
+  let registered = true;
   const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)) });
-  const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview' });
+  const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview', commits: true });
   let job = 0;
 
   function runJob(repo, title, lines, after, fail) {
@@ -79,7 +80,8 @@
 
   const name = (id) => workspace.repos.find((r) => r.id === id).name;
   const handlers = {
-    ready: () => emit([workspaceEvent(), ...workspace.repos.map((r) => statusEvent(r.id))]),
+    // window.devpanelSelect plays `devpanel <path>`: a select after the state.
+    ready: () => emit([workspaceEvent(), ...workspace.repos.map((r) => statusEvent(r.id)), ...(window.devpanelSelect ? [{ type: 'select', repo: window.devpanelSelect }] : [])]),
     refresh: ({ repo }) => emit((repo ? [repo] : workspace.repos.map((r) => r.id)).map(statusEvent)),
     fetch: ({ repo }) => (repo ? [repo] : workspace.repos.filter((r) => statuses[r.id].remote_url).map((r) => r.id))
       .forEach((id) => runJob(id, `Fetch ${name(id)}`, ['$ git fetch --all --prune --progress', 'remote: Counting objects: 100% (12/12)', 'From github.com:an-dr/x'])),
@@ -93,6 +95,7 @@
       if (fix === 'publish') return runJob(repo, `Publish branch ${name(repo)}`, ['$ git push --progress -u origin HEAD', 'branch set up to track'], () => { statuses[repo].upstream = `origin/${statuses[repo].branch}`; });
       handlers[{ pull: 'pull', push: 'push', sync: 'sync', stash: 'stash', 'commit-all': 'commit' }[fix]]({ repo, message });
     },
+    'open-in-commits': ({ repo, theme }) => emit([{ type: 'toast', level: 'info', message: `(preview) would open ${name(repo)} in Commits, ${theme}` }]),
     open: ({ repo, tool }) => emit([{ type: 'toast', level: 'info', message: `(preview) would open ${name(repo)} in ${tool || 'the default tool'}` }]),
     'add-existing': ({ path }) => {
       const id = `r${workspace.repos.length + 10}`;
@@ -114,6 +117,11 @@
     run: ({ repo, command, title }) => runJob(repo, title || command, [`$ ${command}`, '   Compiling devpanel v0.1.0', '    Finished release [optimized]'], null, command.includes('fail') ? 'error: build failed' : null),
     'save-settings': ({ settings }) => { workspace.settings = settings; emit([workspaceEvent()]); },
     'save-tools': ({ tools: next }) => { workspace.tools = next; emit([workspaceEvent()]); },
+    desktop: ({ request, action }) => {
+      if (action !== 'status') registered = action === 'register';
+      emit([{ type: 'reply', request, ok: true, error: null, data: registered }]);
+    },
+    update: ({ request, action }) => emit([{ type: 'reply', request, ok: true, error: null, data: action === 'check' ? { available: '0.4.0' } : { staged: '0.4.0' } }]),
     'pick-folder': ({ request }) => emit([{ type: 'reply', request, ok: true, error: null, data: '/home/me/Picked' }]),
     'open-url': ({ url }) => emit([{ type: 'toast', level: 'info', message: `(preview) would open ${url}` }]),
     copy: () => {},

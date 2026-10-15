@@ -24,7 +24,7 @@ Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://gith
 devpanel/<version>/devpanel-app --install
 ```
 
-That installs to `~/.devpanel/app`; start it from there with `devpanel`. The Linux build needs WebKitGTK 4.1 and GTK 3, which most desktops already have.
+That installs to `~/.devpanel/app` and adds DevPanel to the application menu or Start menu. It also installs [Commits](https://github.com/an-dr/commits), DevPanel's git client, when Commits is not installed yet; an existing Commits is left alone, since it updates itself. Bundling Commits makes each zip about 25 MB larger. The Linux build needs WebKitGTK 4.1 and GTK 3, which most desktops already have.
 
 **From source**, it needs a Rust toolchain, a C compiler with CMake (bones builds SDL3), and `git` on `PATH`; Linux also needs the WebKitGTK development packages. With Visual Studio 2026 installed, CMake must be 4.2 or newer: the build picks the newest Visual Studio generator, and older CMake fails with "Could not create named generator Visual Studio 18 2026". PowerShell 7 runs the helper scripts.
 
@@ -34,7 +34,7 @@ cd dev-panel
 pwsh scripts/install.ps1
 ```
 
-That builds a release, installs it to `~/.devpanel/app`, and adds DevPanel to the application menu on Linux or the Start menu on Windows. Run it again after pulling to update: the new build goes into a new version folder and starts next time, while the running one is left alone. [docs/installation.md](docs/installation.md) explains the layout, which is the same as Commits uses.
+That builds a release, installs it to `~/.devpanel/app`, and adds DevPanel to the application menu on Linux or the Start menu on Windows, with "Open in DevPanel" on folders. Run it again after pulling to update: the new build goes into a new version folder and starts next time, while the running one is left alone. [docs/installation.md](docs/installation.md) explains the layout, which is the same as Commits uses.
 
 To run without installing: `cargo run --release -p devpanel`.
 
@@ -49,8 +49,9 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 - **Activity** keeps the output of everything DevPanel ran.
 - **Settings** sets the clone folder, the default tool, automatic fetching, the theme, the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
 - `/` searches, Ctrl+R refreshes, Esc closes whatever is open.
+- `devpanel <folder>` adds that repository, or every repository under the folder, and opens it. DevPanel keeps one window: a second launch hands its folder to the running one and brings it to the front.
 
-Status is read when DevPanel starts, when its window regains focus, and after every action. "Behind" is only as fresh as the last fetch: use **Fetch all**, or turn on automatic fetching.
+Status is read when DevPanel starts, when its window regains focus, after every action, and whenever git changes in a repository — a commit or checkout made in a terminal shows up within a second. "Behind" is only as fresh as the last fetch: use **Fetch all**, or turn on automatic fetching.
 
 ## Platforms
 

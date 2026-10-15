@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "name": "DevPanel",
+  "light": {
+    "colours": {
+      "canvas": "#f4f5fa",
+      "surface": "#ffffff",
+      "elevated": "#ffffff",
+      "text": "#191b39",
+      "border": "#c8c8cf",
+      "input": "#f6f7fb",
+      "hover": "#eef0f7",
+      "selection": "#c9f0ea",
+      "selectionText": "#191b39",
+      "accent": "#191b39",
+      "positive": "#008a4e",
+      "negative": "#e0287a",
+      "warning": "#b86e00",
+      "shadow": "rgba(25,27,57,.2)",
+      "urgencyAdvisory": "#b86e00",
+      "urgencyCaution": "#d2501c",
+      "urgencyWarning": "#e0287a"
+    }
+  },
+  "dark": {
+    "colours": {
+      "canvas": "#12131c",
+      "surface": "#1b1c2a",
+      "elevated": "#212232",
+      "text": "#eef0ff",
+      "border": "#344953",
+      "input": "#212232",
+      "hover": "#282a3c",
+      "selection": "#3a525b",
+      "selectionText": "#eef0ff",
+      "accent": "#9afff5",
+      "positive": "#5effa8",
+      "negative": "#ff5c9d",
+      "warning": "#ffb84a",
+      "shadow": "rgba(0,0,0,.6)",
+      "urgencyAdvisory": "#ffb84a",
+      "urgencyCaution": "#ff7b4a",
+      "urgencyWarning": "#ff5c9d"
+    }
+  }
+}

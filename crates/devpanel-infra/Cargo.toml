@@ -10,6 +10,9 @@ devpanel-core = { path = "../devpanel-core" }
 serde.workspace = true
 serde_json.workspace = true
 dirs = "6"
+# A plain bones library: no engine, no bus (plans/commits-integration README).
+bones-kernel-launch = { path = "../../vendor/bones/crates/bones-kernel/bones-kernel-launch" }
+bones-kernel-watch = { path = "../../vendor/bones/crates/bones-kernel/bones-kernel-watch" }
 
 [dev-dependencies]
 tempfile = "3"

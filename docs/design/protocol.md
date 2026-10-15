@@ -27,6 +27,7 @@ sequenceDiagram
 | `commit` | `repo`, `message` | Stages everything and commits |
 | `fix` | `repo`, `fix`, `message?` | Runs one suggested fix (`reclone`, `pull`, `sync`, `push`, `publish`, `commit-all`, `stash`, `open-in-tool`) |
 | `open` | `repo`, `tool?` | Opens the repository in a tool, the default when absent |
+| `open-in-commits` | `repo`, `theme` | Opens the repository in Commits on the view its verdict calls for, in `light` or `dark`: the theme the page shows, with "follow the system" already resolved ([commits.md](commits.md)) |
 | `add-existing` | `path` | Tracks a local repository |
 | `scan` | `path` | Tracks every repository under a folder, as a job |
 | `clone` | `url`, `parent?` | Clones into `parent` or the clone folder, as a job |
@@ -42,6 +43,8 @@ sequenceDiagram
 | `pick-folder` | `request` | Native folder dialog; `reply` data is the path, or `""` when cancelled |
 | `open-url` | `url` | Opens the system browser |
 | `copy` | `text` | Writes the clipboard |
+| `update` | `request`, `action` | Looks for a newer release (`check`) or downloads it into a new version folder for the next start (`stage`); `reply` data is `{available}`, `{staged}`, or `{}` when up to date. Nothing installs without the user's click |
+| `desktop` | `request`, `action` | Registers DevPanel with the desktop (`register`), removes it (`unregister`), or asks (`status`); `reply` data is whether it is registered afterwards |
 
 The last three are answered by the bones `os` module; the rest by the controller.
 
@@ -49,11 +52,12 @@ The last three are answered by the bones `os` module; the rest by the controller
 
 | `type` | Fields | Meaning |
 | --- | --- | --- |
-| `workspace` | `workspace`, `platform`, `version` | Everything persisted: `repos`, `tools`, `settings`; `version` is the app's own. Sent at start and after any change to them |
+| `workspace` | `workspace`, `platform`, `version`, `commits` | Everything persisted: `repos`, `tools`, `settings`; `version` is the app's own; `commits` is whether "Open in Commits" can work: the Commits tool exists and its program is installed. Sent at start, after any change to them, and on a focus refresh when `commits` changed |
 | `status` | `repo`, `status`, `health`, `fixes` | A fresh status read with its verdict ([domain.md](domain.md)) |
 | `job` | `job`, `repo?`, `title`, `state`, `error?` | A job started (`running`) or ended (`succeeded`, `failed`) |
 | `log` | `job`, `line` | One line of a job's output |
 | `reply` | `request`, `ok`, `data`, `error?` | The answer to a request-carrying message |
 | `toast` | `level`, `message` | A notice for the user: `info` or `error` |
+| `select` | `repo` | Select this repository and open its drawer. Sent after `devpanel <path>` opened a folder, at startup or from a later launch |
 
 A job's output arrives between its `running` and final `job` events. A job on a repository is always followed by that repository's `status`; a job that changes what is tracked is followed by `workspace` and every `status`.

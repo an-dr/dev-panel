@@ -4,16 +4,16 @@
 //! and the [`crate::dashboard`] module moves them across the web panel. That
 //! is what lets the controller be tested without a window.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use devpanel_core::domain::{Fix, RepoId};
 use devpanel_core::hub::RepoEdit;
-use devpanel_core::ports::Output;
+use devpanel_core::ports::{Output, WatchHandle};
 use devpanel_core::{Hub, HubError, HubResult};
 
 use crate::jobs::{self, Pool};
@@ -52,6 +52,18 @@ pub struct Controller {
     refreshing: Arc<Mutex<HashSet<RepoId>>>,
     next_job: AtomicU64,
     last_auto_fetch: Instant,
+    /// The folder DevPanel was started with, opened once the page is ready.
+    startup_path: Mutex<Option<PathBuf>>,
+    /// DevPanel's palette as a Commits theme file, when it could be written.
+    commits_theme: Option<PathBuf>,
+    /// Whether Commits was available when the page was last told.
+    commits_available: AtomicBool,
+    /// One watch per tracked repository, with the path it watches.
+    watches: HashMap<RepoId, (PathBuf, WatchHandle)>,
+    /// The workspace revision the watches were last matched to.
+    watched_revision: Option<u64>,
+    /// Repositories a watch reported changed, waiting for the next tick.
+    changed: (Sender<RepoId>, Receiver<RepoId>),
 }
 
 impl Controller {
@@ -67,7 +79,26 @@ impl Controller {
             refreshing: Arc::default(),
             next_job: AtomicU64::new(0),
             last_auto_fetch: Instant::now(),
+            startup_path: Mutex::new(None),
+            commits_theme: None,
+            commits_available: AtomicBool::new(false),
+            watches: HashMap::new(),
+            watched_revision: None,
+            changed: channel(),
         }
+    }
+
+    /// The theme file passed to Commits with every "Open in Commits".
+    pub fn with_commits_theme(mut self, path: Option<PathBuf>) -> Self {
+        self.commits_theme = path;
+        self
+    }
+
+    /// The folder from `devpanel <path>`, opened when the page first says
+    /// it is ready, since a selection sent before then would be lost.
+    pub fn with_startup_path(self, path: Option<PathBuf>) -> Self {
+        *self.startup_path.lock().unwrap() = path;
+        self
     }
 
     /// Events produced since the last call, in order.
@@ -75,8 +106,17 @@ impl Controller {
         self.inbox.try_iter().collect()
     }
 
-    /// Called every frame; runs the periodic fetch when it is due.
+    /// Called every frame: keeps the watches in step with the workspace,
+    /// re-reads repositories they report, and runs the periodic fetch when
+    /// it is due.
     pub fn tick(&mut self, now: Instant) {
+        if self.watched_revision != Some(self.hub.revision()) {
+            self.sync_watches();
+        }
+        let changed: HashSet<RepoId> = self.changed.1.try_iter().collect();
+        for repo in changed {
+            self.refresh(repo);
+        }
         let minutes = self.hub.workspace().settings.auto_fetch_minutes;
         if minutes == 0 {
             self.last_auto_fetch = now;
@@ -93,9 +133,19 @@ impl Controller {
             Action::Ready => {
                 self.send_workspace();
                 self.refresh_all();
+                if let Some(path) = self.startup_path.lock().unwrap().take() {
+                    self.open_path(path);
+                }
             }
             Action::Refresh { repo: Some(repo) } => self.refresh(repo),
-            Action::Refresh { repo: None } => self.refresh_all(),
+            Action::Refresh { repo: None } => {
+                // The page asks this when its window regains focus, which is
+                // when Commits may have been installed or removed.
+                if self.hub.commits_available() != self.commits_available.load(Ordering::Relaxed) {
+                    self.send_workspace();
+                }
+                self.refresh_all();
+            }
             Action::Fetch { repo: Some(repo) } => self.git_job(repo, "Fetch", |hub, id, out| hub.fetch(id, out)),
             Action::Fetch { repo: None } => self.fetch_all(),
             Action::Pull { repo } => self.git_job(repo, "Pull", |hub, id, out| hub.pull(id, out)),
@@ -109,6 +159,17 @@ impl Controller {
             Action::Open { repo, tool } => {
                 let result = self.hub.open_in(&repo, tool.as_ref());
                 self.report(result);
+            }
+            // Off the frame thread: choosing the view reads the status first.
+            Action::OpenInCommits { repo, theme } => {
+                let hub = Arc::clone(&self.hub);
+                let events = self.events.clone();
+                let theme_file = self.commits_theme.clone();
+                jobs::spawn(move || {
+                    if let Err(error) = hub.open_in_commits(&repo, theme, theme_file.as_deref()) {
+                        let _ = events.send(Event::error(error.to_string()));
+                    }
+                });
             }
             Action::AddExisting { path } => {
                 match self.hub.add_existing(Path::new(path.trim())) {
@@ -159,9 +220,9 @@ impl Controller {
                 let result = self.hub.save_tools(tools);
                 self.after_workspace_change(result);
             }
-            // Desktop capabilities belong to the bones `os` module; the
+            // Desktop capabilities belong to the bones `os`, `desktop` and `upgrader` modules; the
             // dashboard module answers these before they reach here.
-            Action::PickFolder { .. } | Action::OpenUrl { .. } | Action::Copy { .. } => {}
+            Action::PickFolder { .. } | Action::OpenUrl { .. } | Action::Copy { .. } | Action::Desktop { .. } | Action::Update { .. } => {}
         }
     }
 
@@ -174,6 +235,51 @@ impl Controller {
     }
 
     // ---- actions -------------------------------------------------------
+
+    /// Watches every tracked repository, and only those, at its current path.
+    fn sync_watches(&mut self) {
+        self.watched_revision = Some(self.hub.revision());
+        let repos = self.hub.workspace().repos;
+        self.watches.retain(|id, (path, _)| repos.iter().any(|r| &r.id == id && &r.path == path));
+        for repo in repos {
+            if self.watches.contains_key(&repo.id) {
+                continue;
+            }
+            let id = repo.id.clone();
+            let changed = Mutex::new(self.changed.0.clone());
+            let on_change = Box::new(move || {
+                let _ = changed.lock().unwrap().send(id.clone());
+            });
+            // An inactive watch (no `.git` yet) is retried at the next change.
+            if let Ok(handle) = self.hub.watch(&repo.id, on_change) {
+                if handle.is_active() {
+                    self.watches.insert(repo.id, (repo.path, handle));
+                }
+            }
+        }
+    }
+
+    /// Tracks the repository at `path`, or every one under it, then selects
+    /// the first. Off the frame thread, since a scan walks the disk.
+    pub fn open_path(&self, path: PathBuf) {
+        let hub = Arc::clone(&self.hub);
+        let events = self.events.clone();
+        jobs::spawn(move || match hub.add_or_scan(&path) {
+            Ok(repos) if repos.is_empty() => {
+                let _ = events.send(Event::info(format!("No repositories in {}", path.display())));
+            }
+            Ok(repos) => {
+                let _ = events.send(workspace_event(&hub));
+                for repo in &repos {
+                    let _ = events.send(status_event(&hub, &repo.id));
+                }
+                let _ = events.send(Event::Select { repo: repos[0].id.clone() });
+            }
+            Err(error) => {
+                let _ = events.send(Event::error(error.to_string()));
+            }
+        });
+    }
 
     fn fix(&self, repo: RepoId, fix: Fix, message: Option<String>) {
         if fix == Fix::OpenInTool {
@@ -321,7 +427,11 @@ impl Controller {
     }
 
     fn send_workspace(&self) {
-        self.emit(workspace_event(&self.hub));
+        let event = workspace_event(&self.hub);
+        if let Event::Workspace { commits, .. } = &event {
+            self.commits_available.store(*commits, Ordering::Relaxed);
+        }
+        self.emit(event);
     }
 
     fn report(&self, result: HubResult<()>) {
@@ -358,7 +468,12 @@ fn workspace_event(hub: &Hub) -> Event {
     } else {
         "linux"
     };
-    Event::Workspace { workspace: hub.workspace(), platform, version: env!("CARGO_PKG_VERSION") }
+    Event::Workspace {
+        workspace: hub.workspace(),
+        platform,
+        version: env!("CARGO_PKG_VERSION"),
+        commits: hub.commits_available(),
+    }
 }
 
 fn to_json(value: &impl serde::Serialize) -> HubResult<serde_json::Value> {
