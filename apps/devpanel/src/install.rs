@@ -1,5 +1,6 @@
-//! `devpanel-app --install`: copies the build this executable belongs to into
-//! the user's install, the same way an update would.
+//! `devpanel-app --install`, and Settings → Installation: copies the build
+//! this executable belongs to into the user's install, the same way an
+//! update would.
 //!
 //! The mechanism is the bones upgrade module's. With nothing installed, the
 //! launcher and a first version folder are placed. With an install present,
@@ -16,7 +17,8 @@
 //! registration is only a warning; the install itself succeeded.
 //!
 //! Run it from an assembled `dist/app/<version>/` folder (scripts/dist.ps1),
-//! where the launcher sits one level up.
+//! where the launcher sits one level up, or from an unzipped release, which
+//! carries it as `devpanel-launcher`.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -27,24 +29,38 @@ use bones_kernel::upgrade::{AppIdentity, CompanionOutcome, CompanionPolicy, Upgr
 use crate::installation;
 
 pub fn run() -> Result<(), Box<dyn Error>> {
+    for line in install()? {
+        if line.starts_with("warning:") {
+            eprintln!("{line}");
+        } else {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+/// Installs the running build, Commits beside it and the desktop entry, and
+/// reports each step as a line; a step that failed after the install itself
+/// is a `warning:` line, not an error. Settings → Installation runs this too.
+pub fn install() -> Result<Vec<String>, String> {
     let upgrade = UpgradeModule::new(installation::config());
     let install_dir = upgrade.install_dir().ok_or("no home directory to install into")?;
     let version = env!("CARGO_PKG_VERSION");
-    if upgrade.install()? {
-        println!("Installed DevPanel {version} to {}", install_dir.display());
+    let mut report = vec![if upgrade.install()? {
+        format!("Installed DevPanel {version} to {}", install_dir.display())
     } else {
-        println!("Pushed DevPanel {version} to {} — it starts the next time DevPanel is launched.", install_dir.display());
-    }
+        format!("Pushed DevPanel {version} to {} — it starts the next time DevPanel is launched.", install_dir.display())
+    }];
     match install_commits(&upgrade) {
-        Ok(Some(message)) => println!("{message}"),
+        Ok(Some(message)) => report.push(message),
         Ok(None) => {}
-        Err(error) => eprintln!("warning: could not install Commits: {error}"),
+        Err(error) => report.push(format!("warning: could not install Commits: {error}")),
     }
-    match register() {
-        Ok(()) => println!("Registered DevPanel with the desktop"),
-        Err(error) => eprintln!("warning: could not register DevPanel with the desktop: {error}"),
-    }
-    Ok(())
+    report.push(match register() {
+        Ok(()) => "Registered DevPanel with the desktop".to_string(),
+        Err(error) => format!("warning: could not register DevPanel with the desktop: {error}"),
+    });
+    Ok(report)
 }
 
 /// Commits' installation identity, as Commits itself declares it

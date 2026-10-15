@@ -61,7 +61,9 @@
   }
 
   const emit = (events) => setTimeout(() => window.dispatchEvent(new CustomEvent('bones-message', { detail: JSON.stringify(events) })), 30);
-  let registered = true;
+  // Unzipped and not yet installed: the Installation panel offers Install.
+  let registered = false;
+  let installed = null;
   const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)) });
   const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview', commits: true });
   let job = 0;
@@ -120,6 +122,11 @@
     desktop: ({ request, action }) => {
       if (action !== 'status') registered = action === 'register';
       emit([{ type: 'reply', request, ok: true, error: null, data: registered }]);
+    },
+    installation: ({ request, action }) => {
+      const report = action === 'install' ? ['Installed DevPanel 0.0.0-preview to /home/me/.devpanel/app', 'Installed Commits 1.9.1', 'Registered DevPanel with the desktop'] : undefined;
+      if (report) { installed = '0.0.0-preview'; registered = true; }
+      setTimeout(() => emit([{ type: 'reply', request, ok: true, error: null, data: { installed, current: false, dir: '/home/me/.devpanel/app', report } }]), report ? 900 : 0);
     },
     update: ({ request, action }) => emit([{ type: 'reply', request, ok: true, error: null, data: action === 'check' ? { available: '0.4.0' } : { staged: '0.4.0' } }]),
     'pick-folder': ({ request }) => emit([{ type: 'reply', request, ok: true, error: null, data: '/home/me/Picked' }]),

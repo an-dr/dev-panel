@@ -65,6 +65,8 @@ const state = {
   settingsStale: true,
   /** Desktop registration: `registered` is unknown (null) until the host answers. */
   desktop: { registered: null, busy: false },
+  /** The install: `status` is `{installed, current, dir}`, null until the host answers; `done` once this run installed itself. */
+  installation: { status: null, busy: false, done: false },
   /** Self-update: a newer release, once found, and the one staged for next start. */
   update: { available: null, staged: null, busy: false, checked: false },
 };
@@ -90,6 +92,7 @@ bridge.on((message) => {
       }
       if (state.selected && !repoById(state.selected)) closeDrawer();
       applyTheme();
+      if (state.installation.status === null && !state.installation.busy) installation('status');
       if (state.desktop.registered === null && !state.desktop.busy) desktop('status');
       if (!state.update.checked) update('check');
       break;
@@ -422,7 +425,7 @@ const VIEWS = {
           <button class="btn primary" type="submit">${icon('check')}Save tools</button>
         </div>
       </form>
-      ${desktopPanel()}
+      ${installationPanel()}
       <div class="panel">
         <h2>Transfer</h2><p>Move your repository list to another machine. Export writes a small JSON file; import reads it and clones every repository into a folder you choose.</p>
         <div class="panel-actions">
@@ -433,23 +436,60 @@ const VIEWS = {
   },
 };
 
-function desktopPanel() {
-  const { registered, busy } = state.desktop;
-  const status = registered === null ? 'Checking…' : registered ? 'Registered' : 'Not registered';
-  const button = registered
-    ? `<button type="button" class="btn" data-action="desktop" data-desktop="unregister" ${busy ? 'disabled' : ''}>${icon('close')}Unregister</button>`
-    : `<button type="button" class="btn" data-action="desktop" data-desktop="register" ${busy || registered === null ? 'disabled' : ''}>${icon('check')}Register with system</button>`;
+// Install whenever this build is not the installed one; registering only once
+// an install exists, since the menu entry starts the installed launcher.
+function installationPanel() {
+  const { status, busy, done } = state.installation;
+  const { registered, busy: registering } = state.desktop;
+  const menu = state.platform === 'windows' ? 'Start menu' : 'application menu';
+  const dir = status?.dir ? `<span class="mono">${esc(status.dir)}</span>` : 'your user folder';
+  let text = 'Checking…';
+  if (status && !status.installed) text = 'Not installed';
+  else if (status) {
+    text = `${esc(status.installed)} installed${status.current ? '' : done ? ', starts from the menu next time' : ', running a copy from elsewhere'}`;
+    if (registered !== null) text += ` · ${registered ? 'registered' : 'not registered'}`;
+  }
+  const buttons = [];
+  if (status?.installed) {
+    buttons.push(registered
+      ? `<button type="button" class="btn" data-action="desktop" data-desktop="unregister" ${registering ? 'disabled' : ''}>${icon('close')}Unregister</button>`
+      : `<button type="button" class="btn" data-action="desktop" data-desktop="register" ${registering || registered === null ? 'disabled' : ''}>${icon('check')}Register with system</button>`);
+  }
+  if (status && !status.current && !done) {
+    const label = busy ? 'Installing…' : status.installed ? 'Install this version' : 'Install';
+    buttons.push(`<button type="button" class="btn primary" data-action="self-install" ${busy ? 'disabled' : ''}>${icon('download')}${label}</button>`);
+  }
   return `
-      <div class="panel" id="desktop-panel">
-        <h2>Desktop</h2><p>An entry in the ${state.platform === 'windows' ? 'Start menu' : 'application menu'}, and “Open in DevPanel” on folders. Installing registers it; this removes or restores it.</p>
-        <div class="panel-actions center"><span class="status-text">${status}</span><span class="spacer"></span>${button}</div>
+      <div class="panel" id="installation-panel">
+        <h2>Installation</h2><p>Installing copies DevPanel to ${dir}, adds it to the ${menu} with “Open in DevPanel” on folders, and installs Commits when it is missing. Register and Unregister add or remove the menu entry of an install.</p>
+        <div class="panel-actions center"><span class="status-text">${text}</span><span class="spacer"></span>${buttons.join('')}</div>
       </div>`;
+}
+
+/** Asks the host where DevPanel is installed, or installs the running build. */
+async function installation(action) {
+  state.installation.busy = true;
+  refreshInstallationPanel();
+  try {
+    const answer = await bridge.request({ type: 'installation', action });
+    state.installation.status = { installed: answer.installed, current: answer.current, dir: answer.dir };
+    for (const line of answer.report || []) toast(line, line.startsWith('warning:') ? 'error' : 'success');
+    if (action === 'install') {
+      state.installation.done = true;
+      desktop('status');
+    }
+  } catch (error) {
+    if (action === 'install') toast(error.message, 'error');
+    else state.installation.status = { installed: null, current: false, dir: null };
+  }
+  state.installation.busy = false;
+  refreshInstallationPanel();
 }
 
 /** Asks the host to register, unregister, or report the desktop registration. */
 async function desktop(action) {
   state.desktop.busy = true;
-  refreshDesktopPanel();
+  refreshInstallationPanel();
   try {
     state.desktop.registered = await bridge.request({ type: 'desktop', action });
   } catch (error) {
@@ -457,7 +497,7 @@ async function desktop(action) {
     else state.desktop.registered = false;
   }
   state.desktop.busy = false;
-  refreshDesktopPanel();
+  refreshInstallationPanel();
 }
 
 // The version, and a quiet update item beside it once a newer release exists.
@@ -494,9 +534,9 @@ function refreshVersionRow() {
 }
 
 // The settings view keeps its forms between renders, so this panel redraws itself.
-function refreshDesktopPanel() {
-  const panel = $('#desktop-panel');
-  if (panel) panel.outerHTML = desktopPanel();
+function refreshInstallationPanel() {
+  const panel = $('#installation-panel');
+  if (panel) panel.outerHTML = installationPanel();
 }
 
 function welcome() {
@@ -1226,6 +1266,7 @@ const ACTIONS = {
   favorite: (el) => toggleFavorite(el.dataset.repo),
   'export-repos': () => exportModal(),
   desktop: (el) => desktop(el.dataset.desktop),
+  'self-install': () => installation('install'),
   'open-in-commits': (el) => bridge.send({ type: 'open-in-commits', repo: el.dataset.repo, theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light' }),
   update: () => update('stage'),
   'check-update': () => { state.update.manual = true; update('check'); },
@@ -1252,7 +1293,7 @@ const ACTIONS = {
 
 // Clicks that only change local view state re-render; ones that open a menu
 // or modal manage their own DOM and must not be re-rendered away.
-const NO_RENDER = new Set(['open-in-commits', 'desktop', 'update', 'check-update', 'open-menu', 'repo-menu', 'add-repo', 'commit', 'install', 'run', 'edit', 'remove', 'favorite', 'export-repos', 'import-repos', 'browse', 'add-tool', 'remove-tool', 'copy', 'open', 'open-url', 'fix']);
+const NO_RENDER = new Set(['open-in-commits', 'desktop', 'self-install', 'update', 'check-update', 'open-menu', 'repo-menu', 'add-repo', 'commit', 'install', 'run', 'edit', 'remove', 'favorite', 'export-repos', 'import-repos', 'browse', 'add-tool', 'remove-tool', 'copy', 'open', 'open-url', 'fix']);
 
 document.addEventListener('click', (event) => {
   const el = event.target.closest('[data-action]');

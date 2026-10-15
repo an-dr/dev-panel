@@ -87,7 +87,8 @@ jobs:
       - name: Package
         run: ./scripts/package-release.ps1 -Platform ${{ matrix.platform }} -Tag "${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}"
 
-      # Every run's zip is downloadable from the run page, tag or not.
+      # Every run's zip is downloadable from the run page, tag or not: unzip
+      # it and run devpanel-app, or install it from its Settings.
       - uses: actions/upload-artifact@v4
         with:
           name: devpanel-${{ matrix.platform }}
@@ -120,7 +121,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l release
-          test "$(ls release/*.zip | wc -l)" -eq 6
+          test "$(ls release/*.zip | wc -l)" -eq 3
           test "$(ls release/*.json | wc -l)" -eq 3
           (cd release && sha256sum *.zip > SHA256SUMS)
           # Written notes when docs/releases/<version>.md exists, generated ones otherwise.

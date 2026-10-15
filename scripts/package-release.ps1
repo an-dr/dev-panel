@@ -1,23 +1,23 @@
 <#
 .SYNOPSIS
-Packages dist/app as the release zip for one platform.
+Packages dist/app's version folder as the release zip for one platform.
 
 .DESCRIPTION
 Run after dist.ps1 on the platform being packaged. Writes to release/:
 
-  devpanel-<version>-<platform>.zip          a devpanel/ folder in the install
-                                             layout (docs/installation.md): unzip
-                                             it and run devpanel, or run
-                                             <version>/devpanel-app --install
-  devpanel-<version>-<platform>-update.zip   the update payload: one version
-                                             folder's contents at the zip's root,
-                                             which the bones upgrade module unpacks
-  devpanel-<platform>.json                   its manifest (version, url, sha256),
-                                             which a running DevPanel looks for in
-                                             the latest release
+  devpanel-<version>-<platform>.zip   the version folder's contents at the
+                                      zip's root, plus LICENSE: unzip it and
+                                      run devpanel-app, then install it from
+                                      Settings or with devpanel-app --install,
+                                      which places devpanel-launcher as the
+                                      launcher. It is also the update payload
+                                      the bones upgrade module unpacks.
+  devpanel-<platform>.json            its manifest (version, url, sha256),
+                                      which a running DevPanel looks for in
+                                      the latest release
 
-The manifest's url points at the payload on the tag's GitHub release, so the
-three files are published together.
+The manifest's url points at the zip on the tag's GitHub release, so the two
+files are published together.
 
 .PARAMETER Platform
 linux-x64, windows-x64 or windows-arm64: the name the zip carries.
@@ -44,41 +44,36 @@ if ($Tag -and $Tag -ne "v$version") {
     throw "Tag $Tag does not match version $version; tag v$version or bump the version first"
 }
 
-$app = Join-Path $root 'dist/app'
+$versionDir = Join-Path $root "dist/app/$version"
 $ext = if ($Platform -like 'windows-*') { '.exe' } else { '' }
-foreach ($required in @("devpanel$ext", "$version/devpanel-app$ext", "$version/devpanel-launcher$ext", "$version/companions/commits-$Platform.json")) {
-    if (-not (Test-Path (Join-Path $app $required))) { throw "dist/app/$required is missing; run scripts/dist.ps1 first" }
+foreach ($required in @("devpanel-app$ext", "devpanel-launcher$ext", "companions/commits-$Platform.json")) {
+    if (-not (Test-Path (Join-Path $versionDir $required))) { throw "dist/app/$version/$required is missing; run scripts/dist.ps1 first" }
 }
 
-# Staged under a devpanel/ folder so unzipping never scatters files.
+# Staged so LICENSE joins the version folder's files without touching dist/.
 $staging = Join-Path $root 'release/staging'
 if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
-$folder = Join-Path $staging 'devpanel'
-New-Item -ItemType Directory -Force -Path $folder | Out-Null
-Copy-Item -Recurse (Join-Path $app '*') $folder
-Copy-Item (Join-Path $root 'LICENSE') $folder
+New-Item -ItemType Directory -Force -Path $staging | Out-Null
+Copy-Item -Recurse (Join-Path $versionDir '*') $staging
+Copy-Item (Join-Path $root 'LICENSE') $staging
 
-$zip = Join-Path $root "release/devpanel-$version-$Platform.zip"
+$zipName = "devpanel-$version-$Platform.zip"
+$zip = Join-Path $root "release/$zipName"
 if (Test-Path $zip) { Remove-Item -Force $zip }
 # ZipFile rather than Compress-Archive: on Linux it records each file's Unix
 # permissions, so the executables are still executable after unzipping.
+# Entries sit at the zip's root: the upgrade module extracts it straight
+# into a new version folder.
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::CreateFromDirectory($staging, $zip)
 Remove-Item -Recurse -Force $staging
-Write-Host "Packaged $zip"
 
-# The update payload's entries sit at the zip's root: the upgrade module
-# extracts it straight into a new version folder.
-$payloadName = "devpanel-$version-$Platform-update.zip"
-$payload = Join-Path $root "release/$payloadName"
-if (Test-Path $payload) { Remove-Item -Force $payload }
-[IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $app $version), $payload)
 $releaseTag = if ($Tag) { $Tag } else { "v$version" }
 $manifest = [ordered]@{
     version = $version
-    url     = "https://github.com/$Repository/releases/download/$releaseTag/$payloadName"
-    sha256  = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash.ToLowerInvariant()
+    url     = "https://github.com/$Repository/releases/download/$releaseTag/$zipName"
+    sha256  = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 $manifestPath = Join-Path $root "release/devpanel-$Platform.json"
 $manifest | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
-Write-Host "Packaged $payload and $manifestPath"
+Write-Host "Packaged $zip and $manifestPath"

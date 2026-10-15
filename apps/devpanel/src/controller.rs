@@ -17,7 +17,7 @@ use devpanel_core::ports::{Output, WatchHandle};
 use devpanel_core::{Hub, HubError, HubResult};
 
 use crate::jobs::{self, Pool};
-use crate::protocol::{Action, Event, JobState};
+use crate::protocol::{Action, Event, InstallationAction, JobState};
 
 /// Concurrent `git status` reads.
 const STATUS_WORKERS: usize = 4;
@@ -220,6 +220,13 @@ impl Controller {
                 let result = self.hub.save_tools(tools);
                 self.after_workspace_change(result);
             }
+            // Off the frame thread: installing copies the whole build.
+            Action::Installation { request, action } => {
+                let events = self.events.clone();
+                jobs::spawn(move || {
+                    let _ = events.send(reply_event(request, installation(action)));
+                });
+            }
             // Desktop capabilities belong to the bones `os`, `desktop` and `upgrader` modules; the
             // dashboard module answers these before they reach here.
             Action::PickFolder { .. } | Action::OpenUrl { .. } | Action::Copy { .. } | Action::Desktop { .. } | Action::Update { .. } => {}
@@ -227,11 +234,7 @@ impl Controller {
     }
 
     pub fn reply(&self, request: u64, result: HubResult<serde_json::Value>) {
-        let event = match result {
-            Ok(data) => Event::Reply { request, ok: true, data, error: None },
-            Err(error) => Event::Reply { request, ok: false, data: serde_json::Value::Null, error: Some(error.to_string()) },
-        };
-        self.emit(event);
+        self.emit(reply_event(request, result));
     }
 
     // ---- actions -------------------------------------------------------
@@ -474,6 +477,26 @@ fn workspace_event(hub: &Hub) -> Event {
         version: env!("CARGO_PKG_VERSION"),
         commits: hub.commits_available(),
     }
+}
+
+fn reply_event(request: u64, result: HubResult<serde_json::Value>) -> Event {
+    match result {
+        Ok(data) => Event::Reply { request, ok: true, data, error: None },
+        Err(error) => Event::Reply { request, ok: false, data: serde_json::Value::Null, error: Some(error.to_string()) },
+    }
+}
+
+/// The installation status, after installing the running build for `install`.
+fn installation(action: InstallationAction) -> HubResult<serde_json::Value> {
+    let report = match action {
+        InstallationAction::Status => None,
+        InstallationAction::Install => Some(crate::install::install().map_err(HubError::Command)?),
+    };
+    let mut reply = to_json(&crate::installation::status())?;
+    if let Some(report) = report {
+        reply["report"] = serde_json::json!(report);
+    }
+    Ok(reply)
 }
 
 fn to_json(value: &impl serde::Serialize) -> HubResult<serde_json::Value> {

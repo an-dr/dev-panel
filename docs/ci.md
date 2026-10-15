@@ -10,7 +10,7 @@ flowchart LR
     L --> Art["run artifacts<br/>one zip per platform"]
     W --> Art
     A --> Art
-    Art -->|v* tag only| Rel["GitHub release<br/>zips, update payloads, manifests, SHA256SUMS"]
+    Art -->|v* tag only| Rel["GitHub release<br/>zips, manifests, SHA256SUMS"]
 ```
 
 ## One job per platform, on that platform
@@ -34,12 +34,12 @@ This differs from Commits, which cross-compiles both Windows targets from Linux 
 
 ## Artifacts and releases
 
-Every run uploads, per platform, `devpanel-<version>-<platform>.zip`, the update payload `devpanel-<version>-<platform>-update.zip` and its manifest `devpanel-<platform>.json`, downloadable from the run page for 30 days. A tag `v<version>` additionally publishes all of them and a `SHA256SUMS` file as a GitHub release. Its notes are `docs/releases/<version>.md` when that file exists, generated otherwise. The manifests are what a running DevPanel's update check reads from the latest release ([installation.md](installation.md#updating)). `package-release.ps1` refuses a tag that does not match `[workspace.package] version`, so a release can never hold binaries that report another version.
+Every run uploads, per platform, `devpanel-<version>-<platform>.zip` and its manifest `devpanel-<platform>.json`, downloadable from the run page for 30 days. A tag `v<version>` additionally publishes all of them and a `SHA256SUMS` file as a GitHub release. Its notes are `docs/releases/<version>.md` when that file exists, generated otherwise. The manifests are what a running DevPanel's update check reads from the latest release ([installation.md](installation.md#updating)). `package-release.ps1` refuses a tag that does not match `[workspace.package] version`, so a release can never hold binaries that report another version.
 
-Each zip holds a `devpanel/` folder in the [install layout](installation.md). Run `devpanel` from it directly, or install it for the current user:
+The zip is one version folder, and it is both the download and the update payload ([installation.md](installation.md#the-release-zip)). Unzip it and run `devpanel-app`, then install it from Settings → Installation or with:
 
 ```sh
-devpanel/<version>/devpanel-app --install
+devpanel-app --install
 ```
 
 ## Releasing

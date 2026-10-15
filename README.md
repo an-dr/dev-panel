@@ -18,10 +18,10 @@ Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://gith
 
 ## Getting it
 
-**Download** the zip for your platform — Linux x64, Windows x64 or Windows ARM64 — from the [latest release](https://github.com/an-dr/dev-panel/releases/latest), unzip it, and either run `devpanel/devpanel` directly or install it for your user:
+**Download** the zip for your platform — Linux x64, Windows x64 or Windows ARM64 — from the [latest release](https://github.com/an-dr/dev-panel/releases/latest), unzip it, and run `devpanel-app`. To keep it, click **Install** in Settings → Installation, or run:
 
 ```sh
-devpanel/<version>/devpanel-app --install
+devpanel-app --install
 ```
 
 That installs to `~/.devpanel/app` and adds DevPanel to the application menu or Start menu. It also installs [Commits](https://github.com/an-dr/commits), DevPanel's git client, when Commits is not installed yet; an existing Commits is left alone, since it updates itself. Bundling Commits makes each zip about 25 MB larger. The Linux build needs WebKitGTK 4.1 and GTK 3, which most desktops already have.
@@ -47,7 +47,7 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 - **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and get their own section.
 - Click a card to open its details: changed files, every git action, tools, install, recent output.
 - **Activity** keeps the output of everything DevPanel ran.
-- **Settings** sets the clone folder, the default tool, automatic fetching, the theme, the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
+- **Settings** installs DevPanel when it runs from a download, sets the clone folder, the default tool, automatic fetching, the theme, the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
 - `/` searches, Ctrl+R refreshes, Esc closes whatever is open.
 - `devpanel <folder>` adds that repository, or every repository under the folder, and opens it. DevPanel keeps one window: a second launch hands its folder to the running one and brings it to the front.
 

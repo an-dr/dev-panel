@@ -45,8 +45,9 @@ sequenceDiagram
 | `copy` | `text` | Writes the clipboard |
 | `update` | `request`, `action` | Looks for a newer release (`check`) or downloads it into a new version folder for the next start (`stage`); `reply` data is `{available}`, `{staged}`, or `{}` when up to date. Nothing installs without the user's click |
 | `desktop` | `request`, `action` | Registers DevPanel with the desktop (`register`), removes it (`unregister`), or asks (`status`); `reply` data is whether it is registered afterwards |
+| `installation` | `request`, `action` | Asks where DevPanel stands (`status`), or installs the running build (`install`) the way `devpanel-app --install` does; `reply` data is `{installed, current, dir}` — the installed version or `null`, whether the running build is that install, and the install folder — and, after `install`, `report`, the lines the install printed |
 
-The last three are answered by the bones `os` module; the rest by the controller.
+`pick-folder`, `open-url` and `copy` are answered by the bones `os` module, `update` by its `upgrader` module and `desktop` by its `desktop` module; the rest, `installation` included, by the controller.
 
 ## Host → page
 

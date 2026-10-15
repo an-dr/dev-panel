@@ -45,6 +45,10 @@ pub enum Action {
     /// Registers DevPanel with the desktop, removes it, or asks which it is;
     /// answered with a `reply` whose data is whether it is registered.
     Desktop { request: u64, action: DesktopAction },
+    /// Reports where DevPanel is installed, or installs the running build as
+    /// `devpanel-app --install` does; answered with an installation status,
+    /// plus the install's `report` lines after `install`.
+    Installation { request: u64, action: InstallationAction },
     /// Looks for a newer release, or downloads it for the next start;
     /// answered with `{available}`, `{staged}` or `{}` when up to date.
     Update { request: u64, action: UpdateAction },
@@ -58,6 +62,13 @@ pub enum DesktopAction {
     Register,
     Unregister,
     Status,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InstallationAction {
+    Status,
+    Install,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -125,6 +136,8 @@ mod tests {
         assert!(matches!(action, Action::OpenInCommits { theme: ResolvedTheme::Dark, .. }));
         let action: Action = serde_json::from_str(r#"{"type":"update","request":4,"action":"stage"}"#).unwrap();
         assert!(matches!(action, Action::Update { request: 4, action: UpdateAction::Stage }));
+        let action: Action = serde_json::from_str(r#"{"type":"installation","request":5,"action":"install"}"#).unwrap();
+        assert!(matches!(action, Action::Installation { request: 5, action: InstallationAction::Install }));
     }
 
     /// The page's labels, in the page's order, are Commits' repository-health
