@@ -62,7 +62,7 @@ pwsh scripts/screenshot.ps1 -View settings -Theme dark -Width 1280,900
 
 renders that preview in headless Chrome or Edge and writes `.artifacts/screenshots/<view>-<theme>-<width>.png`. Below 980 px the sidebar collapses to icons, so check both widths. `-Select <repo id>` plays `devpanel <path>` and opens that repository's drawer.
 
-The page is plain JavaScript with no build step and no dependencies, because a panel's page is loaded from a string and cannot rely on the network. `render()` rebuilds the visible view from state after every host batch; menus and modals live in their own roots, so a status update never closes one under the user's cursor.
+The page is plain JavaScript with no build step and no dependencies, because a panel's page is loaded from a string and cannot rely on the network. `render()` rebuilds the visible view from state. Host batches only schedule it: a batch that changed nothing (a status equal to the one shown) schedules nothing, any other batch renders straight away but at most every 50 ms, and a batch holding only job output at most four times a second. Menus and modals live in their own roots, so a status update never closes one under the user's cursor, and cards play their entrance animation only when their view is entered, not on every rebuild.
 
 ## The icon
 

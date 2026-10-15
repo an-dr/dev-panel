@@ -22,23 +22,54 @@ const bridge = (() => {
     });
   }
 
+  // Each listener says how much a message changed (RENDER); the batch
+  // schedules the largest, rather than rebuilding the page for every batch.
   window.addEventListener('bones-message', (event) => {
     let batch;
     try { batch = JSON.parse(event.detail); } catch { return; }
+    let weight = RENDER.none;
     for (const message of Array.isArray(batch) ? batch : [batch]) {
       if (message.type === 'reply' && waiting.has(message.request)) {
         const { resolve, reject } = waiting.get(message.request);
         waiting.delete(message.request);
         message.ok ? resolve(message.data) : reject(new Error(message.error));
+        weight = RENDER.full;
         continue;
       }
-      listeners.forEach((listener) => listener(message));
+      listeners.forEach((listener) => { weight = Math.max(weight, listener(message) ?? RENDER.full); });
     }
-    render();
+    scheduleRender(weight);
   });
 
   return { send, request, on: (listener) => listeners.push(listener) };
 })();
+
+// ---- render scheduling ----------------------------------------------------
+
+/** How much a host message changed: nothing, only job output, or anything else. */
+const RENDER = { none: 0, output: 1, full: 2 };
+/** Rebuilds come at most this often, however fast the host sends batches. */
+const FULL_RENDER_MS = 50;
+/** Job output alone redraws at most this often; it can stream a line per frame. */
+const OUTPUT_RENDER_MS = 250;
+let renderTimer = 0;
+let renderDue = Infinity;
+let lastRender = 0;
+
+/**
+ * Renders after the wait a change's weight allows, counted from the last
+ * render, so a burst of batches costs one rebuild; `render()` cancels it.
+ * Timers rather than animation frames, which WebKit pauses when the window
+ * is hidden and headless capture barely runs.
+ */
+function scheduleRender(weight) {
+  if (weight === RENDER.none) return;
+  const due = lastRender + (weight === RENDER.full ? FULL_RENDER_MS : OUTPUT_RENDER_MS);
+  if (due >= renderDue) return;
+  clearTimeout(renderTimer);
+  renderDue = due;
+  renderTimer = setTimeout(render, Math.max(0, due - performance.now()));
+}
 
 // ---- state ----------------------------------------------------------------
 
@@ -96,24 +127,29 @@ bridge.on((message) => {
       if (state.desktop.registered === null && !state.desktop.busy) desktop('status');
       if (!state.update.checked) update('check');
       break;
-    case 'status':
-      state.statuses.set(message.repo, { status: message.status, health: message.health, fixes: message.fixes });
+    case 'status': {
+      // Focus refreshes and the watcher resend statuses that rarely change.
+      const entry = { status: message.status, health: message.health, fixes: message.fixes };
+      const known = state.statuses.get(message.repo);
+      if (known && JSON.stringify(known) === JSON.stringify(entry)) return RENDER.none;
+      state.statuses.set(message.repo, entry);
       break;
+    }
     case 'job': onJob(message); break;
     case 'log': {
       const job = state.jobs.get(message.job);
-      if (job) {
-        job.lines.push(message.line);
-        if (job.lines.length > MAX_LOG_LINES) job.lines.splice(0, job.lines.length - MAX_LOG_LINES);
-      }
-      break;
+      if (!job) return RENDER.none;
+      job.lines.push(message.line);
+      if (job.lines.length > MAX_LOG_LINES) job.lines.splice(0, job.lines.length - MAX_LOG_LINES);
+      return RENDER.output;
     }
-    case 'toast': toast(message.message, message.level); break;
+    case 'toast': toast(message.message, message.level); return RENDER.none;
     // `devpanel <path>`: show what the user pointed at.
     case 'select':
       if (repoById(message.repo)) openDrawer(message.repo);
       break;
   }
+  return RENDER.full;
 });
 
 function onJob(message) {
@@ -209,6 +245,9 @@ function badge(meta, text) {
 const $ = (selector) => document.querySelector(selector);
 
 function render() {
+  clearTimeout(renderTimer);
+  renderDue = Infinity;
+  lastRender = performance.now();
   renderSidebar();
   renderTitle();
   const content = $('#content');
@@ -216,7 +255,10 @@ function render() {
   // it is entered or the saved workspace changes, not on every status event.
   const keep = state.view === 'settings' && content.dataset.view === 'settings' && !state.settingsStale;
   if (!keep) {
-    const scroll = content.dataset.view === state.view ? content.scrollTop : 0;
+    const same = content.dataset.view === state.view;
+    const scroll = same ? content.scrollTop : 0;
+    // Cards rise in when a view is entered, not again on every rebuild of it.
+    content.classList.toggle('settled', same);
     content.innerHTML = state.ready ? VIEWS[state.view]() : '<div class="empty"><div class="spinner" style="margin:0 auto"></div></div>';
     content.dataset.view = state.ready ? state.view : '';
     content.scrollTop = scroll;

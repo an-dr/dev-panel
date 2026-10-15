@@ -298,6 +298,7 @@ a { color: var(--accent); }
   animation: rise .25s var(--ease) both;
 }
 .card:hover { border-color: var(--outline-strong); transform: translateY(-1px); }
+#content.settled .card { animation: none; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
 .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tone); opacity: .9; }
 .card.tone-ok::before, .card.tone-muted::before { opacity: 0; }
