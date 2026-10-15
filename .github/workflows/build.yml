@@ -1,8 +1,9 @@
 name: build
 
 # Every platform builds and tests natively on its own GitHub runner, through
-# the same scripts a developer runs locally (docs/ci.md). A v<version> tag
-# also publishes the three zips as a GitHub release.
+# the same scripts a developer runs locally (docs/ci.md). The new commits are
+# checked for AI co-authors. A v<version> tag also publishes the three zips
+# as a GitHub release.
 
 on:
   push:
@@ -21,6 +22,29 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
+  co-authors:
+    name: co-author check
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test the co-author check
+        run: ./scripts/check-coauthors.tests.ps1
+
+      # A pull request's own commits, or what a push added; a new ref falls
+      # back to what main lacks.
+      - name: Check the new commits
+        run: >-
+          ./scripts/check-coauthors.ps1
+          -Base "${{ github.event.pull_request.base.sha || github.event.before }}"
+          -Head "${{ github.event.pull_request.head.sha || github.sha }}"
+
   build:
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
@@ -100,7 +124,7 @@ jobs:
 
   release:
     name: publish release
-    needs: build
+    needs: [build, co-authors]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

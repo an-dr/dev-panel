@@ -1,6 +1,6 @@
 # Continuous integration
 
-[`.github/workflows/build.yml`](../.github/workflows/build.yml) builds, tests and packages DevPanel on every push and pull request, and publishes a release for every `v*` tag.
+[`.github/workflows/build.yml`](../.github/workflows/build.yml) builds, tests and packages DevPanel on every push and pull request, checks the new commits' co-authors, and publishes a release for every `v*` tag.
 
 ```mermaid
 flowchart LR
@@ -10,7 +10,9 @@ flowchart LR
     L --> Art["run artifacts<br/>one zip per platform"]
     W --> Art
     A --> Art
+    Push --> C["co-author check<br/>new commits only"]
     Art -->|v* tag only| Rel["GitHub release<br/>zips, manifests, SHA256SUMS"]
+    C -->|v* tag only| Rel
 ```
 
 ## One job per platform, on that platform
@@ -27,6 +29,10 @@ Each platform builds on a runner of its own operating system and architecture, s
 Tests use the release profile so the build step reuses their artifacts instead of compiling everything twice. Rust is installed on the ARM runner, whose image lacks it; the other runners already have `rustup`. `Swatinem/rust-cache` keeps dependencies between runs, one cache per platform.
 
 This differs from Commits, which cross-compiles both Windows targets from Linux inside one Docker image. Native runners need no cross toolchain, Windows SDK download or compiler wrapper. More importantly, they run the full test suite on Windows x64 and Windows ARM64, not only on Linux. The cost is that a Windows build cannot be reproduced on a Linux machine; it needs Windows, or the workflow's own run.
+
+## Co-author check
+
+The `co-authors` job runs `scripts/check-coauthors.ps1` over the commits a run brings in: a pull request's own commits, or a push's `before..after` range (only the pushed commit when the ref is new). It fails when any of them carries a `Co-authored-by:` trailer naming Claude, Anthropic, Codex, OpenAI or Copilot, lists each one, and says how to drop the trailer before pushing again. AI assistance is disclosed once, in the README, rather than credited per commit. Commits already on `main` before the check existed are not examined. `scripts/check-coauthors.tests.ps1` exercises the check against a throwaway repository.
 
 ## Bundling Commits
 
