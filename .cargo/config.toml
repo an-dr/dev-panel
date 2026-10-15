@@ -10,7 +10,7 @@ UPGRADER_INSTALL_DIR_NAME = ".devpanel"
 UPGRADER_INSTALL_ENV_VAR = "DEVPANEL_INSTALL_DIR"
 UPGRADER_LAUNCHER_STEM = "devpanel"
 UPGRADER_APP_STEM = "devpanel-app"
-UPGRADER_LAUNCHER_VERSION = "0.4.1"
+UPGRADER_LAUNCHER_VERSION = "0.5.0"
 
 # The Commits release every DevPanel release bundles (docs/installation.md,
 # ADR-003). scripts/fetch-commits.ps1 reads it; the installer reads the
