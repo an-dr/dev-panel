@@ -4,7 +4,8 @@
 use std::collections::VecDeque;
 use std::io::{BufReader, Read};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::ffi::OsString;
+use std::sync::{Mutex, OnceLock};
 
 use devpanel_core::ports::Output;
 use devpanel_core::{HubError, HubResult};
@@ -12,9 +13,40 @@ use devpanel_core::{HubError, HubResult};
 /// Lines kept to explain a failure.
 const TAIL_LINES: usize = 12;
 
-/// Hides the console window of a command that runs in the background.
-/// No-op outside Windows.
+/// Environment variables this process changed for itself, with the values
+/// they had before, so children can be given the originals back.
+static ORIGINAL_ENV: OnceLock<Vec<(String, Option<OsString>)>> = OnceLock::new();
+
+/// Sets environment variables for this process only: every child started
+/// through this crate sees the values from before the call. Must run before
+/// any other thread starts.
+///
+/// The host needs X11 for its web panel even on a Wayland desktop, but an
+/// editor it opens should start the way it would from the user's own shell.
+pub fn override_own_env(vars: &[(&str, &str)]) {
+    let originals = vars.iter().map(|(name, _)| (name.to_string(), std::env::var_os(name))).collect();
+    if ORIGINAL_ENV.set(originals).is_err() {
+        return;
+    }
+    for (name, value) in vars {
+        std::env::set_var(name, value);
+    }
+}
+
+/// The variables [`override_own_env`] changed, with their values from before.
+pub(crate) fn original_env() -> &'static [(String, Option<OsString>)] {
+    ORIGINAL_ENV.get().map(Vec::as_slice).unwrap_or_default()
+}
+
+/// Readies a background child: the user's original environment, and on
+/// Windows no console window flashing up.
 pub fn prepare_hidden(command: &mut Command) -> &mut Command {
+    for (name, value) in original_env() {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

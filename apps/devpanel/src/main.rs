@@ -31,6 +31,7 @@ use controller::Controller;
 use dashboard::Dashboard;
 
 fn main() {
+    prefer_x11();
     // An install never claims the instance: it must work while DevPanel runs.
     let result = match std::env::args().nth(1).as_deref() {
         Some("--install") => install::run(),
@@ -94,6 +95,16 @@ fn refresh_launcher(logger: &Logger) {
         Ok(false) => {}
         Err(error) => logger.warn("devpanel", &format!("could not refresh the launcher: {error}")),
     }
+}
+
+/// Linux web panels are GTK webviews inside an X11 window. bones asks GTK
+/// for X11, but GTK ignores that when `GDK_BACKEND` is set, as Wayland
+/// sessions such as COSMIC set it, and then refuses to start. So DevPanel
+/// sets it for itself, before any thread starts; programs it launches get the
+/// user's own value back.
+fn prefer_x11() {
+    #[cfg(target_os = "linux")]
+    devpanel_infra::override_own_env(&[("GDK_BACKEND", "x11")]);
 }
 
 /// Info and above to stderr. The engine logs every frame at debug level,

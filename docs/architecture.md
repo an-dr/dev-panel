@@ -115,4 +115,4 @@ The workspace — tracked repositories, tools and settings — is one JSON docum
 
 ## Linux display
 
-bones embeds GTK webviews as children of the SDL window, which only works on X11. bones selects X11 (Xwayland on Wayland desktops) for its own SDL and GTK without changing the process environment, so DevPanel does nothing here, and a program it launches starts exactly as it would from a shell.
+bones embeds GTK webviews as children of the SDL window, which only works on X11. bones points SDL at X11 (Xwayland on Wayland desktops) through a hint and asks GTK for X11, but GTK ignores that request whenever `GDK_BACKEND` is set, which Wayland sessions such as COSMIC do. So `main` sets `GDK_BACKEND=x11` for DevPanel's own process before any thread starts. Programs DevPanel launches get the user's original value back through `env`, and git and shell commands through their environment. A terminal is the exception: bones opens it, so it inherits `x11` and runs under Xwayland.

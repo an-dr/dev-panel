@@ -18,6 +18,7 @@ mod watch;
 
 pub use commits_source::CommitsSourceFile;
 pub use fs::LocalFileSystem;
+pub use process::override_own_env;
 pub use git_cli::GitCli;
 pub use launcher::SystemLauncher;
 pub use shell::SystemShell;
