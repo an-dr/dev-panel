@@ -102,9 +102,14 @@ fn refresh_launcher(logger: &Logger) {
 /// sessions such as COSMIC set it, and then refuses to start. So DevPanel
 /// sets it for itself, before any thread starts; programs it launches get the
 /// user's own value back.
+///
+/// `SDL_APP_ID` names the window's class `devpanel` instead of the
+/// executable's `devpanel-app`, so a taskbar or dock matches the window to
+/// the `devpanel.desktop` entry that `--install` registers, with its name
+/// and icon.
 fn prefer_x11() {
     #[cfg(target_os = "linux")]
-    devpanel_infra::override_own_env(&[("GDK_BACKEND", "x11")]);
+    devpanel_infra::override_own_env(&[("GDK_BACKEND", "x11"), ("SDL_APP_ID", "devpanel")]);
 }
 
 /// Info and above to stderr. The engine logs every frame at debug level,
