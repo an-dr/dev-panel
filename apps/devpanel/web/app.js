@@ -324,7 +324,7 @@ function renderSidebar() {
   // Every page in the sidebar can be dragged to reorder it within its section;
   // Favorites and the groups also take a dragged repository.
   const item = (key, section, iconName, label, count, alert) => `
-    <button class="nav-item ${current === key ? 'active' : ''}" data-action="page" data-page="${esc(key)}" data-section="${section}" draggable="true">
+    <button class="nav-item ${current === key ? 'active' : ''}" data-action="page" data-page="${esc(key)}" data-section="${section}">
       ${icon(iconName)}<span class="label truncate">${esc(label)}</span>
       ${count ? `<span class="count ${alert ? 'alert' : ''}">${count}</span>` : ''}
     </button>`;
@@ -398,54 +398,80 @@ function saveSettings(changes) {
 // ---- drag and drop --------------------------------------------------------
 //
 // A repository dragged onto Favorites is pinned there, and onto a group moves
-// into it. A sidebar item dragged within its own section is put before or
-// after the item it is dropped on, and the new order is saved.
+// into it. A sidebar item dragged within its own section slides into place as
+// it goes, and the new order is saved on release.
+//
+// Pointer events rather than HTML drag and drop: the Linux web view hands
+// HTML drags to its own file-drop handling, so the page never saw them land.
 
-function dropTarget(event) {
-  const target = event.target.closest?.('.nav-item[data-page]');
+const DRAG_THRESHOLD = 5;
+/** A press that may become a drag: where it started and what it would move. */
+let press = null;
+/** Set when a drag ends, so the click the release also produces is ignored. */
+let swallowClick = false;
+
+function dropTarget(x, y) {
+  const target = document.elementFromPoint(x, y)?.closest('.nav-item[data-page]');
   if (!target || !state.drag) return null;
   const key = target.dataset.page;
   if (state.drag.kind === 'repo') return key === 'favorites' || key.startsWith('group:') ? target : null;
-  return target.dataset.section === state.drag.section && key !== state.drag.key ? target : null;
+  return target.dataset.section === state.drag.section ? target : null;
 }
 
-function clearDropMarks() {
-  document.querySelectorAll('.drop-target, .drop-before, .drop-after').forEach((el) => el.classList.remove('drop-target', 'drop-before', 'drop-after'));
-}
-
-document.addEventListener('dragstart', (event) => {
-  const repo = event.target.closest?.('[data-drag-repo]');
-  const nav = event.target.closest?.('.nav-item[data-section]');
-  if (repo) state.drag = { kind: 'repo', id: repo.dataset.dragRepo };
-  else if (nav) state.drag = { kind: 'nav', key: nav.dataset.page, section: nav.dataset.section };
-  else return;
-  // Some engines start no drag without data; the value itself goes unused.
-  event.dataTransfer.setData('text/plain', state.drag.id || state.drag.key);
-  event.dataTransfer.effectAllowed = 'move';
-  (repo || nav).classList.add('dragging');
-});
-
-document.addEventListener('dragover', (event) => {
-  const target = dropTarget(event);
-  clearDropMarks();
-  if (!target) return;
-  event.preventDefault();
-  event.dataTransfer.dropEffect = 'move';
-  if (state.drag.kind === 'repo') {
-    target.classList.add('drop-target');
-  } else {
-    const box = target.getBoundingClientRect();
-    target.classList.add(event.clientY < box.top + box.height / 2 ? 'drop-before' : 'drop-after');
+/** Moves `item` before or after `target`, sliding the items it passes (FLIP). */
+function slide(item, target, after) {
+  const siblings = [...item.parentElement.querySelectorAll(`.nav-item[data-section="${item.dataset.section}"]`)];
+  const before = new Map(siblings.map((el) => [el, el.getBoundingClientRect().top]));
+  target.insertAdjacentElement(after ? 'afterend' : 'beforebegin', item);
+  for (const el of siblings) {
+    const shift = before.get(el) - el.getBoundingClientRect().top;
+    if (!shift || el === item) continue;
+    el.animate([{ transform: `translateY(${shift}px)` }, { transform: 'none' }], { duration: 160, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }
-});
+}
 
-document.addEventListener('drop', (event) => {
-  const target = dropTarget(event);
+function beginDrag(event) {
+  const { source, drag } = press;
+  state.drag = drag;
+  document.body.classList.add('is-dragging');
+  source.classList.add('dragging');
+  // The release still arrives when the pointer leaves the window.
+  try { source.setPointerCapture(event.pointerId); } catch { /* not capturable */ }
+  if (drag.kind === 'repo') {
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.innerHTML = `${icon('repo')}<span>${esc(repoById(drag.id)?.name || '')}</span>`;
+    document.body.append(ghost);
+    state.drag.ghost = ghost;
+  }
+  moveDrag(event);
+}
+
+function moveDrag(event) {
+  const { drag } = state;
+  if (drag.ghost) drag.ghost.style.transform = `translate(${event.clientX + 12}px, ${event.clientY + 8}px)`;
+  document.querySelectorAll('.drop-target').forEach((el) => el.classList.remove('drop-target'));
+  const target = dropTarget(event.clientX, event.clientY);
   if (!target) return;
-  event.preventDefault();
-  const key = target.dataset.page;
-  if (state.drag.kind === 'repo') {
-    const repo = repoById(state.drag.id);
+  if (drag.kind === 'repo') {
+    target.classList.add('drop-target');
+  } else if (target !== press.source) {
+    const box = target.getBoundingClientRect();
+    slide(press.source, target, event.clientY > box.top + box.height / 2);
+  }
+}
+
+function endDrag(event, cancelled) {
+  const { drag } = state;
+  drag.ghost?.remove();
+  document.body.classList.remove('is-dragging');
+  document.querySelectorAll('.dragging, .drop-target').forEach((el) => el.classList.remove('dragging', 'drop-target'));
+  const target = cancelled ? null : dropTarget(event.clientX, event.clientY);
+  state.drag = null;
+  if (drag.kind === 'repo' && target) {
+    const key = target.dataset.page;
+    const repo = repoById(drag.id);
+    target.animate([{ transform: 'scale(1.06)' }, { transform: 'none' }], { duration: 220, easing: 'ease-out' });
     if (key === 'favorites' && repo && !repo.favorite) {
       bridge.send({ type: 'favorite', repo: repo.id, favorite: true });
       toast(`${repo.name} is a favorite`, 'success');
@@ -454,22 +480,67 @@ document.addEventListener('drop', (event) => {
       bridge.send({ type: 'set-group', repo: repo.id, group });
       toast(`Moved ${repo.name} to ${group}`, 'success');
     }
-  } else {
-    const after = target.classList.contains('drop-after');
-    const section = [...document.querySelectorAll(`.nav-item[data-section="${state.drag.section}"]`)].map((el) => el.dataset.page)
-      .filter((k) => k !== state.drag.key);
-    section.splice(section.indexOf(key) + (after ? 1 : 0), 0, state.drag.key);
+  } else if (drag.kind === 'nav' && !cancelled) {
+    const section = [...document.querySelectorAll(`.nav-item[data-section="${drag.section}"]`)].map((el) => el.dataset.page);
     const others = (state.workspace.settings.sidebar_order || []).filter((k) => !section.includes(k));
-    saveSettings({ sidebar_order: [...others, ...section] });
+    const order = [...others, ...section];
+    if (JSON.stringify(order) !== JSON.stringify(state.workspace.settings.sidebar_order || [])) saveSettings({ sidebar_order: order });
   }
+  render();
+}
+
+document.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0 || state.drag) return;
+  // Buttons inside a card keep their own clicks.
+  const control = event.target.closest('button, a, input, select, textarea, .split');
+  const repo = event.target.closest('[data-drag-repo]');
+  const nav = event.target.closest('.nav-item[data-section]');
+  if (nav) press = { source: nav, drag: { kind: 'nav', key: nav.dataset.page, section: nav.dataset.section } };
+  else if (repo && !(control && repo.contains(control))) press = { source: repo, drag: { kind: 'repo', id: repo.dataset.dragRepo } };
+  else return;
+  press.x = event.clientX;
+  press.y = event.clientY;
 });
 
-document.addEventListener('dragend', () => {
-  clearDropMarks();
-  document.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
-  state.drag = null;
-  render();
+document.addEventListener('pointermove', (event) => {
+  if (!press) return;
+  if (!state.drag) {
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_THRESHOLD) return;
+    beginDrag(event);
+  } else {
+    moveDrag(event);
+  }
+  event.preventDefault();
 });
+
+document.addEventListener('pointerup', (event) => {
+  if (state.drag) {
+    swallowClick = true;
+    endDrag(event, false);
+  }
+  press = null;
+});
+
+document.addEventListener('pointercancel', (event) => {
+  if (state.drag) endDrag(event, true);
+  press = null;
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.drag) {
+    swallowClick = true;
+    endDrag(event, true);
+    press = null;
+  }
+}, true);
+
+// The click a drag's release produces is not a click on what was dragged.
+document.addEventListener('click', (event) => {
+  if (!swallowClick) return;
+  swallowClick = false;
+  event.stopImmediatePropagation();
+  event.preventDefault();
+}, true);
 
 function renderTitle() {
   const c = counts();
@@ -813,7 +884,7 @@ function card(repo) {
     ? `<div class="job-line"><span class="spinner"></span><span>${esc(job.title)}</span><span class="mono truncate">${esc(job.lines.at(-1) || '')}</span></div>`
     : commit;
   return `
-    <article class="card tone-${meta.tone} ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" draggable="true" data-drag-repo="${esc(repo.id)}">
+    <article class="card tone-${meta.tone} ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" data-drag-repo="${esc(repo.id)}">
       <div class="card-head">
         ${avatar(repo)}
         <div class="card-title">
@@ -839,7 +910,7 @@ function row(repo) {
   const s = entry?.status;
   const job = runningJob(repo.id);
   return `
-    <div class="row ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" draggable="true" data-drag-repo="${esc(repo.id)}">
+    <div class="row ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" data-drag-repo="${esc(repo.id)}">
       <div class="who">${avatar(repo)}<div style="min-width:0"><div class="truncate" style="font-weight:600">${esc(repo.name)}</div>
         <div class="mono muted truncate" style="font-size:11.5px">${esc(shortPath(repo.path))}</div></div></div>
       <div class="meta">${statusSummary(s)}</div>
