@@ -367,6 +367,22 @@ fn a_failing_source_does_not_fail_the_change() {
 }
 
 #[test]
+fn a_repository_moves_between_groups_and_out_of_them() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let repo = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    assert_eq!(f.hub.set_group(&repo.id, Some("apps".into())).unwrap().group.as_deref(), Some("apps"));
+    assert_eq!(f.hub.set_group(&repo.id, Some("  ".into())).unwrap().group, None);
+    assert!(f.hub.set_group(&RepoId("r9".into()), None).is_err());
+}
+
+#[test]
+fn settings_written_before_the_page_options_still_load() {
+    let settings: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+    assert_eq!(settings.start_page, "last");
+    assert!(settings.sidebar_order.is_empty());
+}
+
+#[test]
 fn failed_save_leaves_memory_unchanged() {
     let git = FakeGit::default().with_repo("/home/u/a", None);
     let f = fixture_with(git, FakeFs::default(), FakeStore { fail: true, ..FakeStore::default() });

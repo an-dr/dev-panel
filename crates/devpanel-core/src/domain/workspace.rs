@@ -17,6 +17,14 @@ pub struct Settings {
     pub scan_depth: u32,
     /// `system`, `light` or `dark`. Interpreted by the presentation only.
     pub theme: String,
+    /// The page DevPanel opens on: `last` for wherever the user was, or
+    /// `overview`, `favorites`, `repos`, `activity` or `group:<name>`.
+    /// Interpreted by the presentation only.
+    pub start_page: String,
+    /// The user's order of the sidebar's items, by the same keys as
+    /// `start_page`; items it does not name keep their default place after
+    /// those it does. Interpreted by the presentation only.
+    pub sidebar_order: Vec<String>,
 }
 
 impl Default for Settings {
@@ -27,6 +35,8 @@ impl Default for Settings {
             auto_fetch_minutes: 0,
             scan_depth: 3,
             theme: "system".into(),
+            start_page: "last".into(),
+            sidebar_order: Vec::new(),
         }
     }
 }

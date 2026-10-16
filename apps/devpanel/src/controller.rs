@@ -195,6 +195,9 @@ impl Controller {
             Action::Favorite { repo, favorite } => {
                 self.after_workspace_change(self.hub.set_favorite(&repo, favorite).map(drop));
             }
+            Action::SetGroup { repo, group } => {
+                self.after_workspace_change(self.hub.set_group(&repo, group).map(drop));
+            }
             Action::Export { folder } => {
                 match self.hub.export_repos(Path::new(folder.trim())) {
                     Ok(path) => self.emit(Event::info(format!("Exported the repository list to {}", path.display()))),

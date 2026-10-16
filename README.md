@@ -48,6 +48,7 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 - **Overview** shows totals, your favorites, and every repository that needs attention, with its fix buttons.
 - **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and get their own section.
 - Click a card to open its details: changed files, every git action, tools, install, recent output.
+- **Drag** a card onto Favorites or a group in the sidebar to put it there, and drag sidebar items to reorder them. Settings → **Start on** picks the page DevPanel opens on: the one you were on, or any page or group.
 - **Activity** keeps the output of everything DevPanel ran.
 - **Settings** installs DevPanel when it runs from a download, sets the clone folder, the default tool, automatic fetching, the theme, the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
 - `/` searches, Ctrl+R refreshes, Esc closes whatever is open.

@@ -31,6 +31,8 @@ pub enum Action {
     Edit { repo: RepoId, name: String, group: Option<String>, install_command: Option<String> },
     /// Pins a repository as a favourite, or clears the mark.
     Favorite { repo: RepoId, favorite: bool },
+    /// Moves a repository into a group, or out of every group when absent.
+    SetGroup { repo: RepoId, group: Option<String> },
     /// Writes a portable repository list into `folder`.
     Export { folder: String },
     /// Reads a repository list from `folder` and clones every repository it

@@ -22,7 +22,7 @@
       { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, install_command: null, favorite: false },
     ],
     tools,
-    settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, scan_depth: 3, theme: 'system' },
+    settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, scan_depth: 3, start_page: 'last', sidebar_order: [], theme: 'system' },
   };
   const base = { files: [], exists: true, is_repo: true, branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0, stashes: 0, operation: null, has_commits: true, remote_url: 'https://github.com/x/y.git' };
   const commit = (subject, hours) => ({ hash: Math.random().toString(16).slice(2, 9), subject, author: 'Andrei', time: now - hours * 3600 });
@@ -109,6 +109,7 @@
     clone: ({ url }) => runJob(null, `Clone ${url.split('/').pop().replace(/\.git$/, '')}`, ['$ git clone --progress ' + url, 'Cloning into …', 'Receiving objects:  45%', 'Receiving objects: 100% (812/812)', 'Resolving deltas: 100%'], () => handlers['add-existing']({ path: `~/Code/${url.split('/').pop().replace(/\.git$/, '')}` })),
     remove: ({ repo }) => { workspace.repos = workspace.repos.filter((r) => r.id !== repo); emit([workspaceEvent()]); },
     edit: ({ repo, name, group, install_command }) => { Object.assign(workspace.repos.find((r) => r.id === repo), { name, group: group || null, install_command: install_command || null }); emit([workspaceEvent()]); },
+    'set-group': ({ repo, group }) => { workspace.repos.find((r) => r.id === repo).group = group || null; emit([workspaceEvent()]); },
     favorite: ({ repo, favorite }) => { workspace.repos.find((r) => r.id === repo).favorite = favorite; emit([workspaceEvent()]); },
     export: ({ folder }) => emit([{ type: 'toast', level: 'info', message: `(preview) would write devpanel-repos.json to ${folder}` }]),
     import: ({ folder }) => runJob(null, 'Import repositories', [`${folder}/devpanel-repos.json`, '2 repositories in the list', '  + example (~/Code/example)', '  skip bones (already tracked)', 'cloned 1 of 2'], () => emit([workspaceEvent()])),

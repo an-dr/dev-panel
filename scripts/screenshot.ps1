@@ -39,7 +39,7 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 
 # The page opens on the view it remembered last and the theme the mock host sends.
 $html = Get-Content -Raw -Encoding utf8 (Join-Path $root '.artifacts/preview/index.html')
-$html = $html.Replace('<head>', "<head><script>localStorage.setItem('devpanel.view','$View');window.devpanelSelect='$Select'</script>")
+$html = $html.Replace('<head>', "<head><script>localStorage.setItem('devpanel.view','$View');localStorage.setItem('devpanel.page','$View');window.devpanelSelect='$Select'</script>")
 $html = $html.Replace("theme: 'system' }", "theme: '$Theme' }")
 $page = Join-Path $out 'page.html'
 Set-Content -Encoding utf8 -NoNewline -Path $page -Value $html

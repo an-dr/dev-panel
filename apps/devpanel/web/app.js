@@ -94,6 +94,10 @@ const state = {
   selected: null,
   expandedJobs: new Set(),
   settingsStale: true,
+  /** Whether the start page was applied; it is, once, on the first workspace. */
+  started: false,
+  /** What is being dragged: `{ kind: 'repo', id }` or `{ kind: 'nav', key, section }`. */
+  drag: null,
   /** Desktop registration: `registered` is unknown (null) until the host answers. */
   desktop: { registered: null, busy: false },
   /** The install: `status` is `{installed, current, dir}`, null until the host answers; `done` once this run installed itself. */
@@ -118,6 +122,11 @@ bridge.on((message) => {
       state.version = message.version;
       state.commits = message.commits;
       state.settingsStale = true;
+      if (!state.started) {
+        state.started = true;
+        const start = message.workspace.settings.start_page || 'last';
+        goTo(start === 'last' ? load('page', state.view) : start);
+      }
       for (const id of [...state.statuses.keys()]) {
         if (!repoById(id)) state.statuses.delete(id);
       }
@@ -245,6 +254,9 @@ function badge(meta, text) {
 const $ = (selector) => document.querySelector(selector);
 
 function render() {
+  // Rebuilding the sidebar or a card mid-drag would drop what is dragged or
+  // where it is going; the drag's end renders instead.
+  if (state.drag) return;
   clearTimeout(renderTimer);
   renderDue = Infinity;
   lastRender = performance.now();
@@ -308,19 +320,28 @@ const BRAND_MARK = '<svg viewBox="0 0 128 118" aria-hidden="true"><path d="M24 4
 function renderSidebar() {
   const c = counts();
   const favorites = state.workspace.repos.filter((r) => r.favorite).length;
-  const nav = (view, iconName, label, count, alert) => `
-    <button class="nav-item ${state.view === view && (view !== 'repos' || (state.group === null && !state.favoritesOnly)) ? 'active' : ''}" data-action="nav" data-view="${view}">
-      ${icon(iconName)}<span class="label">${label}</span>
+  const current = pageKey();
+  // Every page in the sidebar can be dragged to reorder it within its section;
+  // Favorites and the groups also take a dragged repository.
+  const item = (key, section, iconName, label, count, alert) => `
+    <button class="nav-item ${current === key ? 'active' : ''}" data-action="page" data-page="${esc(key)}" data-section="${section}" draggable="true">
+      ${icon(iconName)}<span class="label truncate">${esc(label)}</span>
       ${count ? `<span class="count ${alert ? 'alert' : ''}">${count}</span>` : ''}
     </button>`;
-  const favoritesNav = favorites ? `
-    <button class="nav-item ${state.view === 'repos' && state.favoritesOnly ? 'active' : ''}" data-action="favorites">
-      ${icon('star')}<span class="label">Favorites</span><span class="count">${favorites}</span>
-    </button>` : '';
-  const groupItems = groups().filter(([g]) => g).map(([group, n]) => `
-    <button class="nav-item ${state.view === 'repos' && state.group === group ? 'active' : ''}" data-action="group" data-group="${esc(group)}">
-      ${icon('layers')}<span class="label truncate">${esc(group)}</span><span class="count">${n}</span>
-    </button>`).join('');
+  const mainCounts = { overview: [c.attention, true], favorites: [favorites], repos: [c.total], activity: [c.running] };
+  const mainItems = ordered(MAIN_PAGES.map(([key]) => key)).map((key) => {
+    const [, iconName, label] = MAIN_PAGES.find(([k]) => k === key);
+    return item(key, 'main', iconName, label, ...mainCounts[key]);
+  }).join('');
+  const groupKeys = ordered(groups().filter(([g]) => g).map(([g]) => `group:${g}`));
+  const groupItems = groupKeys.map((key) => {
+    const group = key.slice('group:'.length);
+    return item(key, 'groups', 'layers', group, groups().find(([g]) => g === group)[1]);
+  }).join('');
+  const nav = (view, iconName, label) => `
+    <button class="nav-item ${state.view === view ? 'active' : ''}" data-action="page" data-page="${view}">
+      ${icon(iconName)}<span class="label">${label}</span>
+    </button>`;
   const theme = state.workspace.settings.theme || 'system';
   const next = theme === 'dark' ? 'light' : 'dark';
   const themeToggle = theme === 'system' ? '' : `
@@ -332,16 +353,123 @@ function renderSidebar() {
       <div class="brand-mark">${BRAND_MARK}</div>
       <div><div class="brand-name">DevPanel</div><div class="brand-sub">Your repositories</div></div>
     </div>
-    ${nav('overview', 'home', 'Overview', c.attention, true)}
-    ${favoritesNav}
-    ${nav('repos', 'repo', 'Repositories', c.total)}
-    ${nav('activity', 'activity', 'Activity', c.running)}
+    ${mainItems}
     ${groupItems ? `<div class="nav-label">Groups</div>${groupItems}` : ''}
     <div class="sidebar-footer">
       ${themeToggle}
       ${nav('settings', 'settings', 'Settings')}
     </div>`;
 }
+
+// ---- pages and the sidebar's order ---------------------------------------
+
+/** The sidebar's own pages: key, icon, label, in their default order. */
+const MAIN_PAGES = [['overview', 'home', 'Overview'], ['favorites', 'star', 'Favorites'], ['repos', 'repo', 'Repositories'], ['activity', 'activity', 'Activity']];
+
+/** The page on screen as a key: a view, `favorites`, or `group:<name>`. */
+function pageKey() {
+  if (state.view === 'repos' && state.favoritesOnly) return 'favorites';
+  if (state.view === 'repos' && state.group !== null) return `group:${state.group}`;
+  return state.view;
+}
+
+/** Shows the page `key` names; a group that no longer exists falls back to the overview. */
+function goTo(key) {
+  Object.assign(state, { view: 'overview', group: null, favoritesOnly: false, filter: 'all' });
+  if (key === 'favorites') Object.assign(state, { view: 'repos', favoritesOnly: true });
+  else if (key.startsWith('group:') && groups().some(([g]) => g && `group:${g}` === key)) Object.assign(state, { view: 'repos', group: key.slice('group:'.length) });
+  else if (['overview', 'repos', 'activity', 'settings'].includes(key)) state.view = key;
+  remember('page', pageKey());
+}
+
+/** `keys` in the user's sidebar order; keys it does not name follow, in their default order. */
+function ordered(keys) {
+  const order = state.workspace.settings.sidebar_order || [];
+  const rank = (key) => (order.includes(key) ? order.indexOf(key) : order.length + keys.indexOf(key));
+  return [...keys].sort((a, b) => rank(a) - rank(b));
+}
+
+function saveSettings(changes) {
+  state.workspace.settings = { ...state.workspace.settings, ...changes };
+  state.settingsStale = true;
+  bridge.send({ type: 'save-settings', settings: state.workspace.settings });
+}
+
+// ---- drag and drop --------------------------------------------------------
+//
+// A repository dragged onto Favorites is pinned there, and onto a group moves
+// into it. A sidebar item dragged within its own section is put before or
+// after the item it is dropped on, and the new order is saved.
+
+function dropTarget(event) {
+  const target = event.target.closest?.('.nav-item[data-page]');
+  if (!target || !state.drag) return null;
+  const key = target.dataset.page;
+  if (state.drag.kind === 'repo') return key === 'favorites' || key.startsWith('group:') ? target : null;
+  return target.dataset.section === state.drag.section && key !== state.drag.key ? target : null;
+}
+
+function clearDropMarks() {
+  document.querySelectorAll('.drop-target, .drop-before, .drop-after').forEach((el) => el.classList.remove('drop-target', 'drop-before', 'drop-after'));
+}
+
+document.addEventListener('dragstart', (event) => {
+  const repo = event.target.closest?.('[data-drag-repo]');
+  const nav = event.target.closest?.('.nav-item[data-section]');
+  if (repo) state.drag = { kind: 'repo', id: repo.dataset.dragRepo };
+  else if (nav) state.drag = { kind: 'nav', key: nav.dataset.page, section: nav.dataset.section };
+  else return;
+  // Some engines start no drag without data; the value itself goes unused.
+  event.dataTransfer.setData('text/plain', state.drag.id || state.drag.key);
+  event.dataTransfer.effectAllowed = 'move';
+  (repo || nav).classList.add('dragging');
+});
+
+document.addEventListener('dragover', (event) => {
+  const target = dropTarget(event);
+  clearDropMarks();
+  if (!target) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  if (state.drag.kind === 'repo') {
+    target.classList.add('drop-target');
+  } else {
+    const box = target.getBoundingClientRect();
+    target.classList.add(event.clientY < box.top + box.height / 2 ? 'drop-before' : 'drop-after');
+  }
+});
+
+document.addEventListener('drop', (event) => {
+  const target = dropTarget(event);
+  if (!target) return;
+  event.preventDefault();
+  const key = target.dataset.page;
+  if (state.drag.kind === 'repo') {
+    const repo = repoById(state.drag.id);
+    if (key === 'favorites' && repo && !repo.favorite) {
+      bridge.send({ type: 'favorite', repo: repo.id, favorite: true });
+      toast(`${repo.name} is a favorite`, 'success');
+    } else if (key.startsWith('group:') && repo && repo.group !== key.slice('group:'.length)) {
+      const group = key.slice('group:'.length);
+      bridge.send({ type: 'set-group', repo: repo.id, group });
+      toast(`Moved ${repo.name} to ${group}`, 'success');
+    }
+  } else {
+    const after = target.classList.contains('drop-after');
+    const section = [...document.querySelectorAll(`.nav-item[data-section="${state.drag.section}"]`)].map((el) => el.dataset.page)
+      .filter((k) => k !== state.drag.key);
+    section.splice(section.indexOf(key) + (after ? 1 : 0), 0, state.drag.key);
+    const others = (state.workspace.settings.sidebar_order || []).filter((k) => !section.includes(k));
+    saveSettings({ sidebar_order: [...others, ...section] });
+  }
+});
+
+document.addEventListener('dragend', () => {
+  clearDropMarks();
+  document.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+  state.drag = null;
+  render();
+});
 
 function renderTitle() {
   const c = counts();
@@ -450,6 +578,12 @@ const VIEWS = {
               .map(([v, l]) => `<option value="${v}" ${(s.theme || 'system') === v ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
           <span class="hint">A fixed theme adds a light/dark switch to the sidebar.</span>
+          <label for="s-start">Start on</label>
+          <select id="s-start" class="field" name="start_page">
+            ${[['last', 'The page I was on'], ...MAIN_PAGES.map(([k, , l]) => [k, l]), ...groups().filter(([g]) => g).map(([g]) => [`group:${g}`, `Group: ${g}`])]
+              .map(([v, l]) => `<option value="${esc(v)}" ${(s.start_page || 'last') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+          </select>
+          <span class="hint">Drag sidebar items to reorder them${(s.sidebar_order || []).length ? ' — <button type="button" class="link" data-action="reset-sidebar">reset the order</button>' : ''}. Drop a repository on Favorites or a group to put it there.</span>
           <span class="form-label">Version</span>
           <span class="form-value version-row" id="version-row">${versionRow()}</span>
         </div>
@@ -679,7 +813,7 @@ function card(repo) {
     ? `<div class="job-line"><span class="spinner"></span><span>${esc(job.title)}</span><span class="mono truncate">${esc(job.lines.at(-1) || '')}</span></div>`
     : commit;
   return `
-    <article class="card tone-${meta.tone} ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}">
+    <article class="card tone-${meta.tone} ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" draggable="true" data-drag-repo="${esc(repo.id)}">
       <div class="card-head">
         ${avatar(repo)}
         <div class="card-title">
@@ -705,7 +839,7 @@ function row(repo) {
   const s = entry?.status;
   const job = runningJob(repo.id);
   return `
-    <div class="row ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}">
+    <div class="row ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" draggable="true" data-drag-repo="${esc(repo.id)}">
       <div class="who">${avatar(repo)}<div style="min-width:0"><div class="truncate" style="font-weight:600">${esc(repo.name)}</div>
         <div class="mono muted truncate" style="font-size:11.5px">${esc(shortPath(repo.path))}</div></div></div>
       <div class="meta">${statusSummary(s)}</div>
@@ -1282,9 +1416,8 @@ function applyTheme() {
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
 const ACTIONS = {
-  nav: (el) => { state.view = el.dataset.view; state.group = null; state.favoritesOnly = false; state.filter = 'all'; remember('view', state.view); },
-  group: (el) => { state.view = 'repos'; state.group = el.dataset.group; state.favoritesOnly = false; state.filter = 'all'; },
-  favorites: () => { state.view = 'repos'; state.group = null; state.favoritesOnly = true; state.filter = 'all'; },
+  page: (el) => goTo(el.dataset.page),
+  'reset-sidebar': () => saveSettings({ sidebar_order: [] }),
   filter: (el) => { state.view = 'repos'; state.favoritesOnly = false; state.filter = el.dataset.filter; },
   layout: (el) => { state.layout = el.dataset.layout; remember('layout', state.layout); },
   select: (el) => { state.selected = state.selected === el.dataset.repo ? null : el.dataset.repo; },
@@ -1375,6 +1508,7 @@ document.addEventListener('submit', (event) => {
         auto_fetch_minutes: Number(data.get('auto_fetch_minutes')),
         scan_depth: Math.max(1, Math.min(8, Number(data.get('scan_depth')) || 3)),
         theme: data.get('theme') || 'system',
+        start_page: data.get('start_page') || 'last',
       },
     });
     toast('Settings saved', 'success');

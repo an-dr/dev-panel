@@ -177,6 +177,16 @@ impl Hub {
         })
     }
 
+    /// Moves a repository into `group`, or out of every group when `None`
+    /// or blank.
+    pub fn set_group(&self, id: &RepoId, group: Option<String>) -> HubResult<Repo> {
+        self.mutate(|ws| {
+            let repo = ws.repos.iter_mut().find(|r| &r.id == id).ok_or_else(|| not_found(id))?;
+            repo.group = non_empty(group);
+            Ok(repo.clone())
+        })
+    }
+
     // ---- transfer --------------------------------------------------------
 
     /// Writes a portable list of every tracked repository to

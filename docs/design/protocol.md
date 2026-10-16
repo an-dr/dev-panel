@@ -34,6 +34,7 @@ sequenceDiagram
 | `remove` | `repo` | Stops tracking; files stay on disk |
 | `edit` | `repo`, `name`, `group?`, `install_command?` | Updates a repository's settings |
 | `favorite` | `repo`, `favorite` | Pins a repository as a favourite, or clears the mark |
+| `set-group` | `repo`, `group?` | Moves a repository into a group, or out of every group when absent |
 | `export` | `folder` | Writes a portable repository list (`devpanel-repos.json`) into `folder` |
 | `import` | `folder`, `dest?` | Reads the list in `folder` and clones every repository into `dest` or the clone folder, as a job |
 | `install-recipes` | `request`, `repo` | Answered with a `reply` holding the recipe list |
