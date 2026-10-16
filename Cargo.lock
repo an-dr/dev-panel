@@ -1033,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "devpanel"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bones-kernel",
  "bones-launcher",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "devpanel-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1056,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "devpanel-infra"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bones-kernel-launch",
  "bones-kernel-watch",
