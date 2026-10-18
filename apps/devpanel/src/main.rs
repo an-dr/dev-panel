@@ -72,7 +72,7 @@ fn run(primary: Option<instance::Primary>, startup_path: Option<PathBuf>) -> Res
 
     let mut kernel = bones_kernel::Kernel::new()
         .logger(logger)
-        .window("DevPanel", 1280, 820)
+        .window("DevPanel", 1440, 960)
         .min_window_size(760, 520)
         .web()
         .os()

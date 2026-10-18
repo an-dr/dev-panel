@@ -456,7 +456,7 @@ fn custom_install_command_comes_first() {
     let fs = FakeFs { files: vec!["install.sh".into()], ..FakeFs::default() };
     let f = fixture_with(git, fs, FakeStore::default());
     let id = f.hub.add_existing(Path::new("/home/u/a")).unwrap().id;
-    let edit = RepoEdit { name: "a".into(), group: None, install_command: Some("just install".into()) };
+    let edit = RepoEdit { name: "a".into(), group: None, install_command: Some("just install".into()), ..RepoEdit::default() };
     f.hub.update_repo(&id, edit).unwrap();
     let labels: Vec<_> = f.hub.install_recipes(&id).unwrap().into_iter().map(|r| r.label).collect();
     assert_eq!(labels, ["Custom", "install.sh"]);
@@ -519,8 +519,10 @@ fn import_clones_each_listed_repository_and_restores_its_marks() {
                 group: Some("engine".into()),
                 install_command: Some("just build".into()),
                 favorite: true,
+                web_url: Some("https://code.example/bones".into()),
+                ..RepoExport::default()
             },
-            RepoExport { name: "nolocal".into(), remote: None, group: None, install_command: None, favorite: false },
+            RepoExport { name: "nolocal".into(), ..RepoExport::default() },
         ],
     };
     f.fs.stored.lock().unwrap().insert(PathBuf::from("/home/u/backup/devpanel-repos.json"), list);
@@ -535,6 +537,7 @@ fn import_clones_each_listed_repository_and_restores_its_marks() {
     assert_eq!(repos[0].group.as_deref(), Some("engine"));
     assert_eq!(repos[0].install_command.as_deref(), Some("just build"));
     assert!(repos[0].favorite);
+    assert_eq!(repos[0].web_url.as_deref(), Some("https://code.example/bones"));
     assert_eq!(f.git.calls(), [format!("clone https://x/bones.git {}", dest.display())]);
 }
 
@@ -549,9 +552,7 @@ fn import_skips_repositories_already_tracked() {
         repos: vec![RepoExport {
             name: "bones".into(),
             remote: Some("https://x/bones.git".into()),
-            group: None,
-            install_command: None,
-            favorite: false,
+            ..RepoExport::default()
         }],
     };
     f.fs.stored.lock().unwrap().insert(PathBuf::from("/home/u/backup/devpanel-repos.json"), list);
@@ -566,4 +567,28 @@ fn import_rejects_a_newer_format() {
     let list = RepoList { version: RepoList::VERSION + 1, repos: vec![] };
     f.fs.stored.lock().unwrap().insert(PathBuf::from("/home/u/backup/devpanel-repos.json"), list);
     assert!(matches!(f.hub.import_repos(Path::new("~/backup"), None, &Silent), Err(HubError::Invalid(_))));
+}
+
+#[test]
+fn new_repositories_take_a_plain_name_only_when_asked() {
+    let git = FakeGit::default().with_repo("/home/u/a", None).with_repo("/home/u/b", None);
+    let f = fixture(git);
+    let auto = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    assert_eq!(auto.name_style, None, "the page picks a style");
+    let settings = Settings { plain_names_for_new_repos: true, ..f.hub.workspace().settings };
+    f.hub.save_settings(settings).unwrap();
+    let plain = f.hub.add_existing(Path::new("/home/u/b")).unwrap();
+    assert_eq!(plain.name_style, Some(NameStyle::plain()));
+}
+
+#[test]
+fn an_edit_sets_and_clears_the_name_style() {
+    let git = FakeGit::default().with_repo("/home/u/a", None);
+    let f = fixture(git);
+    let id = f.hub.add_existing(Path::new("/home/u/a")).unwrap().id;
+    let style = NameStyle { font: "vt323".into(), weight: 400, italic: false };
+    let edit = RepoEdit { name: "a".into(), name_style: Some(style.clone()), ..RepoEdit::default() };
+    assert_eq!(f.hub.update_repo(&id, edit).unwrap().name_style, Some(style));
+    let edit = RepoEdit { name: "a".into(), ..RepoEdit::default() };
+    assert_eq!(f.hub.update_repo(&id, edit).unwrap().name_style, None);
 }

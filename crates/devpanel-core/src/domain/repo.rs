@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Stable identity of a tracked repository. Survives renames and moves,
 /// which is why it is not derived from the path.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct RepoId(pub String);
 
@@ -13,7 +13,7 @@ pub struct RepoId(pub String);
 /// Only what the user chose is stored here. Everything git can tell us
 /// (branch, changes, upstream) is [`RepoStatus`](super::RepoStatus) and is
 /// read fresh, never persisted.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Repo {
     pub id: RepoId,
     /// Display name; defaults to the folder name.
@@ -32,12 +32,40 @@ pub struct Repo {
     /// Pinned by the user as a main repository; shown first and in Favorites.
     #[serde(default)]
     pub favorite: bool,
+    /// The repository's web page when the one derived from the remote is
+    /// wrong or missing; see [`web_url_from_remote`](super::web_url_from_remote).
+    #[serde(default)]
+    pub web_url: Option<String>,
+    /// How the name is drawn, when the user chose it; `None` leaves the
+    /// choice to the page, which derives one from the id.
+    #[serde(default)]
+    pub name_style: Option<NameStyle>,
+}
+
+/// The typeface of a repository's name. Interpreted by the presentation only:
+/// the core neither knows the fonts nor checks the values, so a font the page
+/// no longer ships falls back to its plain one rather than failing a load.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NameStyle {
+    /// A font id from the page's catalogue; empty for the plain UI font.
+    pub font: String,
+    /// CSS weight, e.g. 400 or 700; `0` for the font's regular weight.
+    pub weight: u16,
+    pub italic: bool,
+}
+
+impl NameStyle {
+    /// The interface's own font, upright and regular.
+    pub fn plain() -> Self {
+        Self::default()
+    }
 }
 
 /// A repository as it travels between machines: everything needed to clone it
 /// again and restore how the user had it, but nothing tied to this machine
 /// (no absolute path, no local id). See [`Repo`] for the tracked form.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoExport {
     pub name: String,
     pub remote: Option<String>,
@@ -47,6 +75,10 @@ pub struct RepoExport {
     pub install_command: Option<String>,
     #[serde(default)]
     pub favorite: bool,
+    #[serde(default)]
+    pub web_url: Option<String>,
+    #[serde(default)]
+    pub name_style: Option<NameStyle>,
 }
 
 impl From<&Repo> for RepoExport {
@@ -57,6 +89,8 @@ impl From<&Repo> for RepoExport {
             group: repo.group.clone(),
             install_command: repo.install_command.clone(),
             favorite: repo.favorite,
+            web_url: repo.web_url.clone(),
+            name_style: repo.name_style.clone(),
         }
     }
 }

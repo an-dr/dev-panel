@@ -138,7 +138,7 @@ bridge.on((message) => {
       break;
     case 'status': {
       // Focus refreshes and the watcher resend statuses that rarely change.
-      const entry = { status: message.status, health: message.health, fixes: message.fixes };
+      const entry = { status: message.status, health: message.health, fixes: message.fixes, web_url: message.web_url };
       const known = state.statuses.get(message.repo);
       if (known && JSON.stringify(known) === JSON.stringify(entry)) return RENDER.none;
       state.statuses.set(message.repo, entry);
@@ -226,8 +226,51 @@ const changes = (s) => s.staged + s.unstaged + s.untracked + s.conflicted;
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 const lastLines = (text, n) => String(text || '').split('\n').slice(-n).join('\n');
 
-function avatar(repo) {
-  return `<div class="avatar">${esc(repo.name.slice(0, 1).toUpperCase())}</div>`;
+// ---- name styles ------------------------------------------------------------
+// A repository's name is set in one of the bundled display fonts (fonts.js).
+// Unless the user chose one with Edit, the style is derived from the id, so it
+// stays the same across restarts and machines without being stored.
+
+// Wide or small faces scaled so every name reads at about the same size.
+const FONT_SCALE = { 'press-start-2p': 0.62, michroma: 0.8, 'major-mono-display': 0.85, silkscreen: 0.9, audiowide: 0.92, orbitron: 0.92, dseg14: 0.85, vt323: 1.3 };
+const WEIGHT_NAMES = { 400: 'Regular', 700: 'Bold', 900: 'Black' };
+
+function hash(text) {
+  let h = 0x811c9dc5;
+  for (const ch of text) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193);
+  // Spread neighbouring ids such as r1 and r2 across the whole range.
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  return (h ^ (h >>> 12)) >>> 0;
+}
+
+function fontById(id) {
+  return FONTS.find((f) => f.id === id) || null;
+}
+
+// The style picked for a repository nobody styled: a font, one of its real
+// weights, and italic only where the font has a real italic.
+function autoStyle(repo) {
+  const h = hash(repo.id);
+  const font = FONTS[h % FONTS.length];
+  const weight = font.weights[(h >>> 8) % font.weights.length];
+  const italic = font.italics.includes(weight) && ((h >>> 16) & 1) === 1;
+  return { font: font.id, weight, italic };
+}
+
+function nameStyle(repo) {
+  return repo.name_style || autoStyle(repo);
+}
+
+// Inline style for an element holding the repository's name.
+function nameCss(repo) {
+  const style = nameStyle(repo);
+  const font = fontById(style.font);
+  if (!font) return style.italic ? 'font-style:italic' : '';
+  return `font-family:'dp-${font.id}',var(--font);font-weight:${style.weight || 400};font-style:${style.italic ? 'italic' : 'normal'};font-size:${FONT_SCALE[font.id] || 1}em`;
+}
+
+function repoName(repo, cls = '') {
+  return `<span class="repo-name truncate ${cls}" style="${nameCss(repo)}">${esc(repo.name)}</span>`;
 }
 function ago(seconds) {
   if (!seconds) return '';
@@ -424,7 +467,8 @@ function slide(item, target, after) {
   const before = new Map(siblings.map((el) => [el, el.getBoundingClientRect().top]));
   target.insertAdjacentElement(after ? 'afterend' : 'beforebegin', item);
   for (const el of siblings) {
-    const shift = before.get(el) - el.getBoundingClientRect().top;
+    // Box coordinates are window pixels; the sidebar is zoomed by the density.
+    const shift = (before.get(el) - el.getBoundingClientRect().top) / density();
     if (!shift || el === item) continue;
     el.animate([{ transform: `translateY(${shift}px)` }, { transform: 'none' }], { duration: 160, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }
@@ -581,7 +625,7 @@ const VIEWS = {
         ${stat(c.ahead, 'Unpushed', 'arrowUp', c.ahead ? 'info' : 'muted', 'ahead')}
       </div>
       ${favorites.length ? `<div class="section-head"><h2>Favorites</h2><span class="muted">The repositories you pinned</span></div><div class="cards">${favorites.map(card).join('')}</div>` : ''}
-      <div class="section-head"><h2>Needs attention</h2><span class="muted">${attention.length ? 'Fix with one click, or open in your tool' : ''}</span></div>
+      <div class="section-head"><h2>Needs attention</h2><span class="muted">${attention.length ? 'Open one for its suggested fixes' : ''}</span></div>
       ${attention.length ? `<div class="cards">${attention.map(card).join('')}</div>`
         : `<div class="panel" style="display:flex;gap:12px;align-items:center">${badge(HEALTH.clean, 'All clean')}<span class="muted">Every repository is committed, pushed and up to date with what was last fetched.</span></div>`}
       <div class="section-head"><h2>Recently active</h2><span class="muted">By last commit</span></div>
@@ -649,12 +693,24 @@ const VIEWS = {
               .map(([v, l]) => `<option value="${v}" ${(s.theme || 'system') === v ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
           <span class="hint">A fixed theme adds a light/dark switch to the sidebar.</span>
+          <label for="s-density">Density</label>
+          <select id="s-density" class="field" name="density">
+            ${[['compact', 'Compact'], ['comfortable', 'Comfortable'], ['spacious', 'Spacious']]
+              .map(([v, l]) => `<option value="${v}" ${(s.density || 'comfortable') === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <span class="hint">Scales spacing and text across the whole window.</span>
           <label for="s-start">Start on</label>
           <select id="s-start" class="field" name="start_page">
             ${[['last', 'The page I was on'], ...MAIN_PAGES.map(([k, , l]) => [k, l]), ...groups().filter(([g]) => g).map(([g]) => [`group:${g}`, `Group: ${g}`])]
               .map(([v, l]) => `<option value="${esc(v)}" ${(s.start_page || 'last') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}
           </select>
           <span class="hint">Drag sidebar items to reorder them${(s.sidebar_order || []).length ? ' — <button type="button" class="link" data-action="reset-sidebar">reset the order</button>' : ''}. Drop a repository on Favorites or a group to put it there.</span>
+          <label for="s-names">New repositories</label>
+          <select id="s-names" class="field" name="plain_names_for_new_repos">
+            ${[['', 'Get a display font picked for them'], ['plain', 'Keep the plain interface font']]
+              .map(([v, l]) => `<option value="${v}" ${(s.plain_names_for_new_repos ? 'plain' : '') === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <span class="hint">Change any repository’s font with Edit.</span>
           <span class="form-label">Version</span>
           <span class="form-value version-row" id="version-row">${versionRow()}</span>
         </div>
@@ -864,6 +920,11 @@ function commitsButton(repo, size = 'sm') {
   return `<button class="btn ${size} icon-only" data-action="open-in-commits" data-repo="${esc(repo.id)}" title="Open in Commits">${icon('graph')}</button>`;
 }
 
+function webButton(repo) {
+  const url = webUrl(repo);
+  return url ? `<button class="btn sm icon-only" data-action="open-url" data-url="${esc(url)}" title="Open ${esc(url)}">${icon('globe')}</button>` : '';
+}
+
 function fixButtons(repo, entry, limit) {
   if (!entry) return '';
   const tone = HEALTH[entry.health].tone;
@@ -886,9 +947,8 @@ function card(repo) {
   return `
     <article class="card tone-${meta.tone} ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" data-drag-repo="${esc(repo.id)}">
       <div class="card-head">
-        ${avatar(repo)}
         <div class="card-title">
-          <div class="name"><span class="truncate">${esc(repo.name)}</span>${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
+          <div class="name">${repoName(repo)}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
           <div class="path mono truncate" title="${esc(repo.path)}">${esc(shortPath(repo.path))}</div>
         </div>
         ${badge(meta, headline)}
@@ -897,10 +957,7 @@ function card(repo) {
       </div>
       <div class="meta">${statusSummary(s)}</div>
       ${activity}
-      <div class="card-actions">
-        ${openButton(repo)}${commitsButton(repo)}
-        ${job ? '' : fixButtons(repo, entry, 2)}
-      </div>
+      <div class="card-actions">${openButton(repo)}${commitsButton(repo)}${webButton(repo)}</div>
       ${job ? '<div class="progress"></div>' : ''}
     </article>`;
 }
@@ -911,12 +968,12 @@ function row(repo) {
   const job = runningJob(repo.id);
   return `
     <div class="row ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" data-drag-repo="${esc(repo.id)}">
-      <div class="who">${avatar(repo)}<div style="min-width:0"><div class="truncate" style="font-weight:600">${esc(repo.name)}</div>
+      <div class="who"><div style="min-width:0"><div class="truncate" style="font-weight:600">${repoName(repo)}</div>
         <div class="mono muted truncate" style="font-size:11.5px">${esc(shortPath(repo.path))}</div></div></div>
       <div class="meta">${statusSummary(s)}</div>
       <div>${job ? `<span class="job-line"><span class="spinner"></span>${esc(job.title.split(' ')[0])}</span>` : badge(healthOf(repo))}</div>
       <div class="muted truncate" style="font-size:12.5px">${s?.last_commit ? `${esc(s.last_commit.subject)} · ${esc(ago(s.last_commit.time))}` : ''}</div>
-      <div class="card-actions" style="flex-wrap:nowrap">${job ? '' : fixButtons(repo, entry, 1)}${openButton(repo)}${commitsButton(repo)}
+      <div class="card-actions" style="flex-wrap:nowrap">${openButton(repo)}${commitsButton(repo)}${webButton(repo)}
         ${favStar(repo)}
         <button class="btn sm ghost icon-only" data-action="repo-menu" data-repo="${esc(repo.id)}">${icon('more')}</button></div>
       ${job ? '<div class="progress" style="position:absolute;left:0;right:0;bottom:0"></div>' : ''}
@@ -998,9 +1055,8 @@ function renderDrawer() {
     </dl>` : `<p class="muted">${esc(meta.hint)}.${repo.remote ? ' It can be cloned again from its remote.' : ''}</p>`;
   drawer.innerHTML = `
     <div class="drawer-head">
-      ${avatar(repo)}
       <div style="flex:1;min-width:0">
-        <h2 class="truncate">${esc(repo.name)}</h2>
+        <h2 class="truncate">${repoName(repo)}</h2>
         <div class="mono muted truncate" title="${esc(repo.path)}">${esc(repo.path)}</div>
         <div class="meta" style="margin-top:8px">${badge(meta)}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
       </div>
@@ -1010,7 +1066,7 @@ function renderDrawer() {
     <div class="drawer-body">
       ${entry && entry.fixes.length ? `<section><h3>Suggested</h3><div class="card-actions">${fixButtons(repo, entry, 9)}</div></section>` : ''}
       <section><h3>Open in</h3>${state.commits && !NOTHING_TO_OPEN.has(entry?.health) ? `<button class="btn primary open-commits" data-action="open-in-commits" data-repo="${esc(repo.id)}">${icon('graph')}Open in Commits</button>` : ''}<div class="tool-list">${state.workspace.tools.map((t) =>
-        `<button class="btn" data-action="open" data-repo="${esc(repo.id)}" data-tool="${esc(t.id)}">${icon(TOOL_ICON[t.launch.kind] || 'code')}${esc(t.name)}</button>`).join('')}</div></section>
+        `<button class="btn" data-action="open" data-repo="${esc(repo.id)}" data-tool="${esc(t.id)}">${icon(TOOL_ICON[t.launch.kind] || 'code')}${esc(t.name)}</button>`).join('')}${webUrl(repo) ? `<button class="btn" data-action="open-url" data-url="${esc(webUrl(repo))}" title="${esc(webUrl(repo))}">${icon('globe')}Web page</button>` : ''}</div></section>
       ${s && !s.is_repo ? '' : `<section><h3>Git</h3><div class="action-grid">
         ${action('git', 'cloudDown', 'Fetch', 'data-op="fetch"')}
         ${action('git', 'arrowDown', 'Pull', 'data-op="pull"')}
@@ -1028,7 +1084,6 @@ function renderDrawer() {
       <section><h3>Repository</h3><div class="card-actions">
         <button class="btn" data-action="edit" data-repo="${esc(repo.id)}">${icon('edit')}Edit…</button>
         <button class="btn" data-action="copy" data-text="${esc(repo.path)}">${icon('copy')}Copy path</button>
-        ${remoteWebUrl(repo, s) ? `<button class="btn" data-action="open-url" data-url="${esc(remoteWebUrl(repo, s))}">${icon('external')}Open remote</button>` : ''}
         <button class="btn danger" data-action="remove" data-repo="${esc(repo.id)}">${icon('trash')}Remove</button>
       </div></section>
     </div>`;
@@ -1052,15 +1107,10 @@ function changeList(s) {
 }
 
 /** A browsable https URL for the remote, when it is a well-known host. */
-function remoteWebUrl(repo, status) {
-  const url = status?.remote_url || repo.remote;
-  if (!url) return null;
-  let m = url.match(/^git@([^:]+):(.+?)(\.git)?$/);
-  if (m) return `https://${m[1]}/${m[2]}`;
-  m = url.match(/^(?:ssh:\/\/)?git@([^/]+)\/(.+?)(\.git)?$/);
-  if (m) return `https://${m[1]}/${m[2]}`;
-  if (/^https?:\/\//.test(url)) return url.replace(/\.git$/, '');
-  return null;
+// The address set on the repository wins over the one the host derives
+// from its remote.
+function webUrl(repo) {
+  return repo.web_url || state.statuses.get(repo.id)?.web_url || null;
 }
 
 function closeDrawer() {
@@ -1117,11 +1167,11 @@ function repoMenu(anchor, repoId) {
   const repo = repoById(repoId);
   const s = state.statuses.get(repoId)?.status;
   const git = (op) => () => bridge.send({ type: op, repo: repoId });
-  const web = remoteWebUrl(repo, s);
+  const web = webUrl(repo);
   const manage = [
     { text: repo.favorite ? 'Remove from favorites' : 'Mark as favorite', icon: 'star', action: () => toggleFavorite(repoId) },
     { text: 'Copy path', icon: 'copy', action: () => copy(repo.path) },
-    ...(web ? [{ text: 'Open remote in browser', icon: 'external', action: () => bridge.send({ type: 'open-url', url: web }) }] : []),
+    ...(web ? [{ text: 'Open web page', icon: 'globe', action: () => bridge.send({ type: 'open-url', url: web }) }] : []),
     { text: 'Edit…', icon: 'edit', action: () => editModal(repoId) },
     { text: 'Remove from DevPanel', icon: 'trash', danger: true, action: () => removeModal(repoId) },
   ];
@@ -1373,6 +1423,15 @@ function editModal(repoId) {
       <span class="label">Group</span><input class="field" id="m-group" list="m-groups" value="${esc(repo.group || '')}" placeholder="e.g. work, tools, games">
       <datalist id="m-groups">${known.map((g) => `<option value="${esc(g)}">`).join('')}</datalist>
       <span class="label">Install command</span><input class="field mono" id="m-install" value="${esc(repo.install_command || '')}" placeholder="Leave empty to use what DevPanel detects">
+      <span class="label">Name font</span>
+      <div class="field-row name-style">
+        <select class="field" id="m-font">${fontOptions(repo)}</select>
+        <select class="field" id="m-weight"></select>
+        <select class="field" id="m-italic"><option value="">Upright</option><option value="1">Italic</option></select>
+      </div>
+      <div class="name-preview" id="m-preview"></div>
+      <span class="label">Web page</span><input class="field mono" id="m-web" value="${esc(repo.web_url || '')}" placeholder="${esc(state.statuses.get(repoId)?.web_url || 'https://…')}">
+      <span class="note">Leave empty to use the page DevPanel derives from the remote.</span>
       <span class="note">Path: <span class="mono">${esc(repo.path)}</span></span>`,
     actions: [
       { text: 'Cancel' },
@@ -1382,12 +1441,61 @@ function editModal(repoId) {
           bridge.send({
             type: 'edit', repo: repoId,
             name: value(root, '#m-name'), group: value(root, '#m-group'), install_command: value(root, '#m-install'),
+              web_url: value(root, '#m-web'),
+              name_style: editedStyle(repo, root),
           });
           return false;
         },
       },
     ],
+    onMount: (root) => syncNameStyle(repo, root, nameStyle(repo)),
   });
+}
+
+const FONT_THEMES = [['pixel', 'Pixel'], ['cyber', 'Cyber'], ['tech', 'Tech'], ['chip', 'Chip']];
+
+function fontOptions(repo) {
+  const chosen = repo.name_style ? repo.name_style.font : 'auto';
+  const option = (value, label) => `<option value="${esc(value)}" ${chosen === value ? 'selected' : ''}>${esc(label)}</option>`;
+  return option('auto', `Automatic — ${fontById(autoStyle(repo).font).family}`) + option('', 'Plain interface font')
+    + FONT_THEMES.map(([theme, label]) => `<optgroup label="${label}">${FONTS.filter((f) => f.theme === theme).map((f) => option(f.id, f.family)).join('')}</optgroup>`).join('');
+}
+
+// Fills the weight list for the chosen font, keeps a valid weight and italic,
+// and redraws the preview.
+function syncNameStyle(repo, root, style) {
+  const fontSelect = root.querySelector('#m-font');
+  const weightSelect = root.querySelector('#m-weight');
+  const italicSelect = root.querySelector('#m-italic');
+  const font = fontById(fontSelect.value === 'auto' ? autoStyle(repo).font : fontSelect.value);
+  const weights = font ? font.weights : [400, 700];
+  const weight = weights.includes(style.weight) ? style.weight : weights[0];
+  weightSelect.innerHTML = weights.map((w) => `<option value="${w}" ${w === weight ? 'selected' : ''}>${WEIGHT_NAMES[w] || w}</option>`).join('');
+  italicSelect.value = style.italic ? '1' : '';
+  italicSelect.options[1].textContent = !font || font.italics.includes(weight) ? 'Italic' : 'Slanted';
+  const preview = root.querySelector('#m-preview');
+  preview.innerHTML = repoName({ ...repo, name: root.querySelector('#m-name').value || repo.name, name_style: editedStyle(repo, root) || null });
+  if (!fontSelect.dataset.bound) {
+    fontSelect.dataset.bound = '1';
+    const refresh = () => syncNameStyle(repo, root, { weight: Number(weightSelect.value), italic: italicSelect.value === '1' });
+    fontSelect.addEventListener('change', () => syncNameStyle(repo, root, fontSelect.value === 'auto' ? autoStyle(repo) : { weight: Number(weightSelect.value), italic: italicSelect.value === '1' }));
+    weightSelect.addEventListener('change', refresh);
+    italicSelect.addEventListener('change', refresh);
+    root.querySelector('#m-name').addEventListener('input', refresh);
+  }
+}
+
+// The style the dialog describes, or null when it matches the automatic one,
+// so a repository nobody restyled keeps following the automatic pick.
+function editedStyle(repo, root) {
+  const choice = root.querySelector('#m-font').value;
+  const auto = autoStyle(repo);
+  const style = {
+    font: choice === 'auto' ? auto.font : choice,
+    weight: Number(root.querySelector('#m-weight').value) || 400,
+    italic: root.querySelector('#m-italic').value === '1',
+  };
+  return choice === 'auto' && style.weight === auto.weight && style.italic === auto.italic ? null : style;
 }
 
 function removeModal(repoId) {
@@ -1479,10 +1587,15 @@ function openDrawer(repoId) {
   state.selected = repoId;
 }
 
+function density() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--density')) || 1;
+}
+
 function applyTheme() {
   const choice = state.workspace.settings.theme || 'system';
   const dark = choice === 'dark' || (choice === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.dataset.density = state.workspace.settings.density || 'comfortable';
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
@@ -1580,6 +1693,8 @@ document.addEventListener('submit', (event) => {
         scan_depth: Math.max(1, Math.min(8, Number(data.get('scan_depth')) || 3)),
         theme: data.get('theme') || 'system',
         start_page: data.get('start_page') || 'last',
+        plain_names_for_new_repos: data.get('plain_names_for_new_repos') === 'plain',
+        density: data.get('density') || 'comfortable',
       },
     });
     toast('Settings saved', 'success');

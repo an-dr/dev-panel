@@ -25,6 +25,12 @@ pub struct Settings {
     /// `start_page`; items it does not name keep their default place after
     /// those it does. Interpreted by the presentation only.
     pub sidebar_order: Vec<String>,
+    /// Newly tracked repositories get the plain name style instead of one the
+    /// page picks, for a user who styles each repository by hand.
+    pub plain_names_for_new_repos: bool,
+    /// `compact`, `comfortable` or `spacious`. Interpreted by the
+    /// presentation only.
+    pub density: String,
 }
 
 impl Default for Settings {
@@ -37,6 +43,8 @@ impl Default for Settings {
             theme: "system".into(),
             start_page: "last".into(),
             sidebar_order: Vec::new(),
+            plain_names_for_new_repos: false,
+            density: "comfortable".into(),
         }
     }
 }

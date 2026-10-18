@@ -88,6 +88,14 @@
 /* ---- base ----------------------------------------------------------- */
 
 * { box-sizing: border-box; }
+/* Density scales the page, spacing and text together. Heights that fill the
+   window divide by it, since zoom scales them too. Menus and the drag ghost
+   stay unzoomed: they are placed at pointer and bounding-box coordinates,
+   which are in window pixels. */
+:root { --density: 1; }
+:root[data-density="compact"] { --density: 0.9; }
+:root[data-density="spacious"] { --density: 1.12; }
+#app, #modal-root, #toasts { zoom: var(--density); }
 html, body { height: 100%; margin: 0; }
 body {
   font: 14px/1.45 var(--font);
@@ -112,7 +120,7 @@ a { color: var(--accent); }
 #app {
   display: grid;
   grid-template-columns: var(--sidebar) 1fr;
-  height: 100vh;
+  height: calc(100vh / var(--density));
 }
 
 /* ---- sidebar -------------------------------------------------------- */
@@ -170,7 +178,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 
 /* ---- main ------------------------------------------------------------ */
 
-.main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }
+.main { display: flex; flex-direction: column; min-width: 0; height: calc(100vh / var(--density)); }
 .topbar {
   display: flex; align-items: center; gap: 16px;
   padding: 18px 28px 14px;
@@ -313,8 +321,6 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .card:hover { border-color: var(--outline-strong); transform: translateY(-1px); }
 #content.settled .card { animation: none; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
-.card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tone); opacity: .9; }
-.card.tone-ok::before, .card.tone-muted::before { opacity: 0; }
 .card-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .card-head .badge { margin-top: 3px; }
 .card-head .more { margin: -2px -6px 0 -4px; }
@@ -323,13 +329,12 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .btn.star:hover .ico { transform: scale(1.12); }
 .btn.star.on { color: var(--text); }
 .btn.star.on .ico { fill: var(--text); }
-.avatar {
-  width: 38px; height: 38px; border-radius: 10px; flex: none;
-  display: grid; place-items: center; font-weight: 700; font-size: 15px;
-  color: var(--text-2); border: 1.5px solid var(--outline); background: var(--surface-2);
-}
+/* A repository's name in its display font; the size scale sits inline. */
+.repo-name { display: block; min-width: 0; line-height: 1.25; }
+.name-style .field { flex: 1; min-width: 0; }
+.name-preview { padding: 10px 12px; border: 1px dashed var(--outline); border-radius: 8px; font-size: 20px; min-height: 48px; display: flex; align-items: center; }
 .card-title { min-width: 0; flex: 1; }
-.card-title .name { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.card-title .name { font-weight: 650; font-size: 17px; display: flex; align-items: center; gap: 8px; }
 .card-title .path { color: var(--muted); font-size: 12px; margin-top: 1px; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .counter { display: inline-flex; align-items: center; gap: 3px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
@@ -360,7 +365,6 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .row:first-child { border-top: 0; }
 .row:hover { background: var(--surface-hover); }
 .row.selected { background: var(--accent-soft); }
-.row .avatar { width: 30px; height: 30px; border-radius: 8px; font-size: 13px; }
 .row .who { display: flex; gap: 10px; align-items: center; min-width: 0; }
 
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
@@ -377,7 +381,6 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 }
 .drawer.open { transform: none; }
 .drawer-head { padding: 20px 20px 14px; display: flex; gap: 12px; align-items: flex-start; border-bottom: 1px solid var(--border); }
-.drawer-head .avatar { width: 46px; height: 46px; font-size: 18px; border-radius: 12px; }
 .drawer-head h2 { font-size: 18px; letter-spacing: -.01em; }
 .drawer-body { flex: 1; overflow-y: auto; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 18px; }
 .drawer h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; margin-bottom: 8px; }

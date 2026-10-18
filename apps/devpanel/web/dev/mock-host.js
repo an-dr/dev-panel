@@ -64,7 +64,7 @@
   // Unzipped and not yet installed: the Installation panel offers Install.
   let registered = false;
   let installed = null;
-  const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)) });
+  const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)), web_url: statuses[id].remote_url ? statuses[id].remote_url.replace(/\.git$/, '') : null });
   const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview', commits: true });
   let job = 0;
 
@@ -108,7 +108,7 @@
     scan: () => runJob(null, 'Scan ~/Code', ['0 new repositories'], () => emit([workspaceEvent()])),
     clone: ({ url }) => runJob(null, `Clone ${url.split('/').pop().replace(/\.git$/, '')}`, ['$ git clone --progress ' + url, 'Cloning into …', 'Receiving objects:  45%', 'Receiving objects: 100% (812/812)', 'Resolving deltas: 100%'], () => handlers['add-existing']({ path: `~/Code/${url.split('/').pop().replace(/\.git$/, '')}` })),
     remove: ({ repo }) => { workspace.repos = workspace.repos.filter((r) => r.id !== repo); emit([workspaceEvent()]); },
-    edit: ({ repo, name, group, install_command }) => { Object.assign(workspace.repos.find((r) => r.id === repo), { name, group: group || null, install_command: install_command || null }); emit([workspaceEvent()]); },
+    edit: ({ repo, name, group, install_command, web_url }) => { Object.assign(workspace.repos.find((r) => r.id === repo), { name, group: group || null, install_command: install_command || null, web_url: web_url || null }); emit([workspaceEvent()]); },
     'set-group': ({ repo, group }) => { workspace.repos.find((r) => r.id === repo).group = group || null; emit([workspaceEvent()]); },
     favorite: ({ repo, favorite }) => { workspace.repos.find((r) => r.id === repo).favorite = favorite; emit([workspaceEvent()]); },
     export: ({ folder }) => emit([{ type: 'toast', level: 'info', message: `(preview) would write devpanel-repos.json to ${folder}` }]),

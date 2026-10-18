@@ -83,6 +83,16 @@ Remote URLs are remembered from every status read, so a repository that later di
 
 The repository's author knows best, so their scripts come first. Scripts for the other platform are left out rather than offered and failing. Every recipe runs through the platform shell in the repository folder, with no terminal attached: anything that waits for input fails instead of hanging.
 
+## Web page
+
+The globe button opens a repository's page on its host. The address comes from the remote: `origin`, or the remembered clone URL when git reports none. The host and path become `https://host/path` with `.git`, user names, passwords and SSH ports removed. That one rule fits GitHub, GitLab with nested groups and on its own servers, Bitbucket, Codeberg, Gitea, Forgejo and sourcehut. Azure DevOps is the one host whose SSH path differs from its page, `v3/org/project/repo` against `org/project/_git/repo`, and is translated. A local or `file://` remote has no page, and the button is hidden.
+
+An address saved with Edit wins over the derived one. It is for a host neither rule fits, or a page other than the repository's front, and it travels with the repository list on export.
+
+## Name style
+
+Each repository's name is set in one of the bundled display fonts ([development.md](../development.md#display-fonts)), so cards tell apart at a glance without a letter badge. A repository nobody styled gets a font, one of that font's real weights, and italic only where the font has a real italic, all derived from its id: the same on every start and every machine, and never stored. Edit… stores a chosen `name_style` — a font id (empty for the plain interface font), a weight and italic — and choosing Automatic again with its own weight and slant clears it. With Settings → New repositories set to the plain font, a newly tracked or imported repository is stored with the plain style instead, for users who style each one by hand. The core keeps the style as opaque data; only the page knows the fonts, and an unknown font falls back to the plain one.
+
 ## Tools
 
 A tool is a named way to open a repository:

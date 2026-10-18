@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::domain::{
-    detect_install_recipes, repo_name_from_url, CommitsLink, Fix, InstallRecipe, Platform, Repo, RepoExport, RepoId,
+    detect_install_recipes, repo_name_from_url, CommitsLink, Fix, InstallRecipe, NameStyle, Platform, Repo, RepoExport, RepoId,
     RepoList, RepoStatus, ResolvedTheme, Settings, Tool, ToolId, Workspace,
 };
 use crate::ports::{FileSystem, Git, Launcher, Output, RepoSource, RepoWatch, Shell, Store, WatchHandle};
@@ -33,6 +33,9 @@ pub struct RepoEdit {
     pub name: String,
     pub group: Option<String>,
     pub install_command: Option<String>,
+    pub web_url: Option<String>,
+    /// `None` hands the choice back to the page.
+    pub name_style: Option<NameStyle>,
 }
 
 /// Application service. Thread-safe: the workspace sits behind a mutex that
@@ -162,6 +165,8 @@ impl Hub {
             repo.name = name.to_string();
             repo.group = non_empty(edit.group);
             repo.install_command = non_empty(edit.install_command);
+            repo.web_url = non_empty(edit.web_url);
+            repo.name_style = edit.name_style;
             Ok(repo.clone())
         })
     }
@@ -268,6 +273,8 @@ impl Hub {
                 group: non_empty(entry.group.clone()),
                 install_command: non_empty(entry.install_command.clone()),
                 favorite: entry.favorite,
+                web_url: non_empty(entry.web_url.clone()),
+                name_style: entry.name_style.clone().or_else(|| new_name_style(ws)),
             };
             ws.repos.push(repo.clone());
             Ok(repo)
@@ -478,8 +485,8 @@ impl Hub {
                 return Err(HubError::Invalid(format!("{} is already tracked", existing.name)));
             }
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "repository".into());
-            let repo =
-                Repo { id: next_id(&ws.repos), name, path, remote, group: None, install_command: None, favorite: false };
+            let name_style = new_name_style(ws);
+            let repo = Repo { id: next_id(&ws.repos), name, path, remote, name_style, ..Repo::default() };
             ws.repos.push(repo.clone());
             Ok(repo)
         })
@@ -501,3 +508,9 @@ fn not_found(id: &RepoId) -> HubError {
 
 #[cfg(test)]
 mod tests;
+
+/// The style a newly tracked repository starts with: plain when the user
+/// asked for it, otherwise left to the page.
+fn new_name_style(ws: &Workspace) -> Option<NameStyle> {
+    ws.settings.plain_names_for_new_repos.then(NameStyle::plain)
+}

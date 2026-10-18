@@ -15,7 +15,9 @@ Cyan is the accent. It marks what you can act on and where you are, and it never
 
 ## Dark cockpit
 
-Whatever is normal stays neutral, and colour only means something needs a look. A clean repository, a finished job, a zero count and a total all render in text greys, with no tint and no stripe. Colour appears only when a state is out of the ordinary, and its hue says how urgent:
+Whatever is normal stays neutral, and colour only means something needs a look. A clean repository, a finished job, a zero count and a total all render in text greys, with no tint and no stripe. Colour appears only when a state is out of the ordinary, and its hue says how urgent. On a repository card the status chip alone carries it; the card's frame stays neutral.
+
+The hues:
 
 | Urgency | Hue | Dark | Light text | Light solid fill | Verdicts |
 | --- | --- | --- | --- | --- | --- |

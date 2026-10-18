@@ -15,7 +15,7 @@ Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://gith
 | Track | Clone from a URL, add a local folder, or scan a folder and add every repository under it. Group repositories and rename them |
 | See | The condition of every repository: branch, upstream, ahead/behind, staged/modified/untracked/conflicted files, stashes, last commit, unfinished merges or rebases, missing folders |
 | Fix | One-click suggested fixes — pull, push, sync, publish a new branch, commit all, stash, re-clone a missing folder — plus fetch, pull, push and sync on demand, or for all at once |
-| Open | Each repository in any tool you configure. VS Code, Claude Code (in a terminal), Commits, a terminal and the file manager are set up by default |
+| Open | Each repository in any tool you configure. VS Code, Claude Code (in a terminal), Commits, a terminal and the file manager are set up by default — or its web page on GitHub, GitLab, Bitbucket and other hosts |
 | Install | Run the install or build script a repository ships (`install.ps1`, `install.sh`, `scripts/…`), an ecosystem default (`cargo install`, `npm install`, …), or your own command, and watch its output live |
 
 ## Getting it
@@ -45,12 +45,13 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 ## Using it
 
 - **Add repository** (Ctrl+N) — clone, add a folder, or scan a folder.
-- **Overview** shows totals, your favorites, and every repository that needs attention, with its fix buttons.
+- **Overview** shows totals, your favorites, and every repository that needs attention; its suggested fixes sit in the details panel.
+- **Names** appear in pixel, cyber, tech and chip display fonts, picked per repository; Edit… changes the font, weight and italic.
 - **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and get their own section.
-- Click a card to open its details: changed files, every git action, tools, install, recent output.
+- Click a card to open its details: suggested fixes, changed files, every git action, tools, install, recent output.
 - **Drag** a card onto Favorites or a group in the sidebar to put it there, and drag sidebar items to reorder them. Settings → **Start on** picks the page DevPanel opens on: the one you were on, or any page or group.
 - **Activity** keeps the output of everything DevPanel ran.
-- **Settings** installs DevPanel when it runs from a download, sets the clone folder, the default tool, automatic fetching, the theme, the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
+- **Settings** installs DevPanel when it runs from a download, sets the clone folder, the default tool, automatic fetching, the theme, the **density** (compact, comfortable or spacious), the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
 - `/` searches, Ctrl+R refreshes, Esc closes whatever is open.
 - `devpanel <folder>` adds that repository, or every repository under the folder, and opens it. DevPanel keeps one window: a second launch hands its folder to the running one and brings it to the front.
 

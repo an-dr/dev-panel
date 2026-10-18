@@ -58,7 +58,7 @@ impl Store for JsonStore {
 
 #[cfg(test)]
 mod tests {
-    use devpanel_core::domain::{Repo, RepoId};
+    use devpanel_core::domain::{NameStyle, Repo, RepoId};
 
     use super::*;
 
@@ -82,6 +82,8 @@ mod tests {
             group: Some("engine".into()),
             install_command: None,
             favorite: false,
+            web_url: Some("https://code.example/bones".into()),
+            name_style: Some(NameStyle { font: "orbitron".into(), weight: 700, italic: true }),
         });
         store.save(&workspace).unwrap();
         assert_eq!(store.load().unwrap(), workspace);

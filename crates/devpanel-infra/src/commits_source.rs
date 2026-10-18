@@ -103,6 +103,7 @@ mod tests {
             group: group.map(String::from),
             install_command: None,
             favorite,
+            ..Repo::default()
         }
     }
 

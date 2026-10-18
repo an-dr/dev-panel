@@ -6,13 +6,14 @@
 apps/devpanel/          the application
   src/                  main (composition root), dashboard (bones), controller, jobs, protocol, page, install, installation
   src/bin/              the launcher
-  web/                  index.html, style.css, icons.js, app.js — the whole UI
+  web/                  index.html, style.css, icons.js, app.js — the whole UI; fonts.css, fonts.js generated
   web/dev/mock-host.js  a fake host for working on the UI in a browser
   assets/               the app icon: devpanel.svg, and the .ico and PNGs rendered from it
+  assets/fonts/         the display fonts for repository names, with their licences
 crates/devpanel-core/   domain, use cases and ports
 crates/devpanel-infra/  adapters
 vendor/bones/           the engine, as a git submodule
-scripts/                dist.ps1, package-release.ps1, install.ps1, preview.ps1, screenshot.ps1, render-icons.ps1
+scripts/                dist.ps1, package-release.ps1, install.ps1, preview.ps1, screenshot.ps1, render-icons.ps1, build-fonts.ps1
 .github/workflows/      CI: build, test and release on every platform
 .cargo/config.toml      the install identity the bones upgrade module and the launcher are built with
 docs/                   this documentation
@@ -63,6 +64,10 @@ pwsh scripts/screenshot.ps1 -View settings -Theme dark -Width 1280,900
 renders that preview in headless Chrome or Edge and writes `.artifacts/screenshots/<view>-<theme>-<width>.png`. Below 980 px the sidebar collapses to icons, so check both widths. `-Select <repo id>` plays `devpanel <path>` and opens that repository's drawer.
 
 The page is plain JavaScript with no build step and no dependencies, because a panel's page is loaded from a string and cannot rely on the network. `render()` rebuilds the visible view from state. Host batches only schedule it: a batch that changed nothing (a status equal to the one shown) schedules nothing, any other batch renders straight away but at most every 50 ms, and a batch holding only job output at most four times a second. Menus and modals live in their own roots, so a status update never closes one under the user's cursor, and cards play their entrance animation only when their view is entered, not on every rebuild.
+
+## Display fonts
+
+Repository names are set in display fonts — pixel, cyber, tech and seven-segment-style chip faces — all under the SIL Open Font License. The page cannot load them from the network, so they travel inside it: `scripts/build-fonts.ps1` downloads each font's Latin `.woff2` files and licence from pinned npm packages into `apps/devpanel/assets/fonts/`, and generates `web/fonts.css` (the faces as base64, named `dp-<id>`) and `web/fonts.js` (the `FONTS` catalogue the page picks from). `page.rs` and `preview.ps1` put both in front of `style.css` and `app.js`. All of it is committed, so a build needs neither the script nor the network; run the script only to change the set, which is the list at its top.
 
 ## The icon
 

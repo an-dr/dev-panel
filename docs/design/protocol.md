@@ -32,7 +32,7 @@ sequenceDiagram
 | `scan` | `path` | Tracks every repository under a folder, as a job |
 | `clone` | `url`, `parent?` | Clones into `parent` or the clone folder, as a job |
 | `remove` | `repo` | Stops tracking; files stay on disk |
-| `edit` | `repo`, `name`, `group?`, `install_command?` | Updates a repository's settings |
+| `edit` | `repo`, `name`, `group?`, `install_command?`, `web_url?`, `name_style?` | Updates a repository's settings; an empty value clears it |
 | `favorite` | `repo`, `favorite` | Pins a repository as a favourite, or clears the mark |
 | `set-group` | `repo`, `group?` | Moves a repository into a group, or out of every group when absent |
 | `export` | `folder` | Writes a portable repository list (`devpanel-repos.json`) into `folder` |
@@ -55,7 +55,7 @@ sequenceDiagram
 | `type` | Fields | Meaning |
 | --- | --- | --- |
 | `workspace` | `workspace`, `platform`, `version`, `commits` | Everything persisted: `repos`, `tools`, `settings`; `version` is the app's own; `commits` is whether "Open in Commits" can work: the Commits tool exists and its program is installed. Sent at start, after any change to them, and on a focus refresh when `commits` changed |
-| `status` | `repo`, `status`, `health`, `fixes` | A fresh status read with its verdict ([domain.md](domain.md)) |
+| `status` | `repo`, `status`, `health`, `fixes`, `web_url` | A fresh status read with its verdict, and the web page derived from the remote, or `null` ([domain.md](domain.md)) |
 | `job` | `job`, `repo?`, `title`, `state`, `error?` | A job started (`running`) or ended (`succeeded`, `failed`) |
 | `log` | `job`, `line` | One line of a job's output |
 | `reply` | `request`, `ok`, `data`, `error?` | The answer to a request-carrying message |

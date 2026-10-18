@@ -2,7 +2,7 @@
 //! object with a `type`; requests that expect an answer carry a `request`
 //! number that the matching [`Event::Reply`] echoes.
 
-use devpanel_core::domain::{Fix, Health, RepoId, RepoStatus, ResolvedTheme, Settings, Tool, ToolId, Workspace};
+use devpanel_core::domain::{web_url_from_remote, Fix, Health, NameStyle, RepoId, RepoStatus, ResolvedTheme, Settings, Tool, ToolId, Workspace};
 use serde::{Deserialize, Serialize};
 
 /// Page → host.
@@ -28,7 +28,17 @@ pub enum Action {
     Scan { path: String },
     Clone { url: String, parent: Option<String> },
     Remove { repo: RepoId },
-    Edit { repo: RepoId, name: String, group: Option<String>, install_command: Option<String> },
+    Edit {
+        repo: RepoId,
+        name: String,
+        group: Option<String>,
+        install_command: Option<String>,
+        #[serde(default)]
+        web_url: Option<String>,
+        /// Absent or `null` hands the choice back to the page.
+        #[serde(default)]
+        name_style: Option<NameStyle>,
+    },
     /// Pins a repository as a favourite, or clears the mark.
     Favorite { repo: RepoId, favorite: bool },
     /// Moves a repository into a group, or out of every group when absent.
@@ -94,7 +104,7 @@ pub enum JobState {
 pub enum Event {
     /// `commits`: whether "Open in Commits" can work right now.
     Workspace { workspace: Workspace, platform: &'static str, version: &'static str, commits: bool },
-    Status { repo: RepoId, status: RepoStatus, health: Health, fixes: Vec<Fix> },
+    Status { repo: RepoId, status: RepoStatus, health: Health, fixes: Vec<Fix>, web_url: Option<String> },
     Job { job: u64, repo: Option<RepoId>, title: String, state: JobState, error: Option<String> },
     Log { job: u64, line: String },
     Reply { request: u64, ok: bool, data: serde_json::Value, error: Option<String> },
@@ -113,10 +123,13 @@ impl Event {
         Event::Toast { level: "info", message: message.into() }
     }
 
-    pub fn status(repo: RepoId, status: RepoStatus, has_remote_url: bool) -> Self {
+    /// `remote` is the URL DevPanel remembers for the repository, used for
+    /// its web page when git reports no remote.
+    pub fn status(repo: RepoId, status: RepoStatus, remote: Option<&str>) -> Self {
         let health = Health::of(&status);
-        let fixes = Health::fixes(&status, has_remote_url);
-        Event::Status { repo, status, health, fixes }
+        let fixes = Health::fixes(&status, remote.is_some());
+        let web_url = status.remote_url.as_deref().or(remote).and_then(web_url_from_remote);
+        Event::Status { repo, status, health, fixes, web_url }
     }
 }
 

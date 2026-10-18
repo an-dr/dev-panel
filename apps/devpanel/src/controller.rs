@@ -189,8 +189,9 @@ impl Controller {
             // status, so they resend the workspace without a status storm —
             // which is what used to make the list flicker on every change.
             Action::Remove { repo } => self.after_workspace_change(self.hub.remove(&repo)),
-            Action::Edit { repo, name, group, install_command } => {
-                self.after_workspace_change(self.hub.update_repo(&repo, RepoEdit { name, group, install_command }).map(drop));
+            Action::Edit { repo, name, group, install_command, web_url, name_style } => {
+                let edit = RepoEdit { name, group, install_command, web_url, name_style };
+                self.after_workspace_change(self.hub.update_repo(&repo, edit).map(drop));
             }
             Action::Favorite { repo, favorite } => {
                 self.after_workspace_change(self.hub.set_favorite(&repo, favorite).map(drop));
@@ -459,8 +460,8 @@ impl Controller {
 fn status_event(hub: &Hub, repo: &RepoId) -> Event {
     match hub.status(repo) {
         Ok(status) => {
-            let has_url = hub.repo(repo).is_ok_and(|r| r.remote.is_some());
-            Event::status(repo.clone(), status, has_url)
+            let remote = hub.repo(repo).ok().and_then(|r| r.remote);
+            Event::status(repo.clone(), status, remote.as_deref())
         }
         Err(error) => Event::error(error.to_string()),
     }
