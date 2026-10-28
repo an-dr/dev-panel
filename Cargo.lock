@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "bones-kernel"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "anyhow",
  "bones-kernel-infra",
@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "bones-kernel-infra"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "bones-messages",
  "pubsub-bus",
@@ -372,21 +372,21 @@ dependencies = [
 
 [[package]]
 name = "bones-kernel-launch"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "dirs",
 ]
 
 [[package]]
 name = "bones-kernel-watch"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "notify",
 ]
 
 [[package]]
 name = "bones-launcher"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "bones-versioning",
  "winresource",
@@ -398,7 +398,7 @@ version = "1.2.0"
 
 [[package]]
 name = "bones-module-desktop"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "bones-kernel-infra",
  "bones-messages",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "bones-module-os"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "arboard",
  "base64",
@@ -422,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "bones-module-renderer"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "ab_glyph",
  "bones-kernel-infra",
@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "bones-module-single-instance"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "bones-kernel-infra",
  "bones-messages",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "bones-module-ui"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "bones-kernel-infra",
  "bones-messages",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "bones-module-upgrade"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "base64",
  "bones-kernel-infra",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "bones-module-web"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "bones-kernel-infra",
  "bones-messages",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "bones-versioning"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "semver",
 ]
@@ -745,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "devpanel"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "bones-kernel",
  "bones-launcher",
@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "devpanel-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -768,7 +768,7 @@ dependencies = [
 
 [[package]]
 name = "devpanel-infra"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "bones-kernel-launch",
  "bones-kernel-watch",
