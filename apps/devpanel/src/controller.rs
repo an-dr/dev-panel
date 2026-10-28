@@ -7,11 +7,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use devpanel_core::domain::{Fix, RepoId};
+use devpanel_core::domain::{Fix, RepoId, ToolId};
 use devpanel_core::hub::RepoEdit;
 use devpanel_core::ports::{Output, WatchHandle};
 use devpanel_core::{Hub, HubError, HubResult};
@@ -23,6 +23,8 @@ use crate::protocol::{Action, Event, InstallationAction, JobState};
 const STATUS_WORKERS: usize = 4;
 /// Concurrent fetches during "Fetch all".
 const NETWORK_WORKERS: usize = 4;
+/// How often the background pull looks for repositories gone stale.
+const PULL_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 
 /// What a finished job invalidates on the page.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -52,12 +54,15 @@ pub struct Controller {
     refreshing: Arc<Mutex<HashSet<RepoId>>>,
     next_job: AtomicU64,
     last_auto_fetch: Instant,
+    /// When the background pull last looked for stale repositories.
+    last_pull_check: Option<Instant>,
     /// The folder DevPanel was started with, opened once the page is ready.
     startup_path: Mutex<Option<PathBuf>>,
     /// DevPanel's palette as a Commits theme file, when it could be written.
     commits_theme: Option<PathBuf>,
-    /// Whether Commits was available when the page was last told.
-    commits_available: AtomicBool,
+    /// What the page was last told is installed: whether Commits is, and
+    /// which tools are.
+    installed: Mutex<(bool, Vec<ToolId>)>,
     /// One watch per tracked repository, with the path it watches.
     watches: HashMap<RepoId, (PathBuf, WatchHandle)>,
     /// The workspace revision the watches were last matched to.
@@ -79,9 +84,10 @@ impl Controller {
             refreshing: Arc::default(),
             next_job: AtomicU64::new(0),
             last_auto_fetch: Instant::now(),
+            last_pull_check: None,
             startup_path: Mutex::new(None),
             commits_theme: None,
-            commits_available: AtomicBool::new(false),
+            installed: Mutex::new((false, Vec::new())),
             watches: HashMap::new(),
             watched_revision: None,
             changed: channel(),
@@ -117,6 +123,10 @@ impl Controller {
         for repo in changed {
             self.refresh(repo);
         }
+        if self.last_pull_check.is_none_or(|last| now.duration_since(last) >= PULL_CHECK_INTERVAL) {
+            self.last_pull_check = Some(now);
+            self.pull_stale();
+        }
         let minutes = self.hub.workspace().settings.auto_fetch_minutes;
         if minutes == 0 {
             self.last_auto_fetch = now;
@@ -140,8 +150,10 @@ impl Controller {
             Action::Refresh { repo: Some(repo) } => self.refresh(repo),
             Action::Refresh { repo: None } => {
                 // The page asks this when its window regains focus, which is
-                // when Commits may have been installed or removed.
-                if self.hub.commits_available() != self.commits_available.load(Ordering::Relaxed) {
+                // when Commits or another tool may have been installed or
+                // removed.
+                let installed = (self.hub.commits_available(), self.hub.available_tools());
+                if installed != *self.installed.lock().unwrap() {
                     self.send_workspace();
                 }
                 self.refresh_all();
@@ -343,6 +355,23 @@ impl Controller {
         }
     }
 
+    /// Pulls in the background every repository not pulled within the
+    /// configured number of hours.
+    fn pull_stale(&self) {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
+        let due = match self.hub.take_due_pulls(now) {
+            Ok(due) => due,
+            Err(error) => return self.emit(Event::error(error.to_string())),
+        };
+        for id in due {
+            let name = self.hub.repo(&id).map(|r| r.name).unwrap_or_else(|_| id.0.clone());
+            let repo = id.clone();
+            self.job(Some(id), format!("Auto-pull {name}"), Afterwards::Status, Runner::Pool(&self.network_pool), move |hub, out| {
+                hub.auto_pull(&repo, out)
+            });
+        }
+    }
+
     fn git_job(
         &self,
         repo: RepoId,
@@ -435,8 +464,8 @@ impl Controller {
 
     fn send_workspace(&self) {
         let event = workspace_event(&self.hub);
-        if let Event::Workspace { commits, .. } = &event {
-            self.commits_available.store(*commits, Ordering::Relaxed);
+        if let Event::Workspace { commits, available, .. } = &event {
+            *self.installed.lock().unwrap() = (*commits, available.clone());
         }
         self.emit(event);
     }
@@ -480,6 +509,7 @@ fn workspace_event(hub: &Hub) -> Event {
         platform,
         version: env!("CARGO_PKG_VERSION"),
         commits: hub.commits_available(),
+        available: hub.available_tools(),
     }
 }
 

@@ -99,10 +99,13 @@ A tool is a named way to open a repository:
 
 | Kind | Starts |
 | --- | --- |
-| Program | `program args…`, with `{path}` in arguments replaced by the repository path and the repository as working directory. `~` and `PATH` resolve as in a shell; on Windows `PATHEXT` finds `code.cmd` from `code` |
+| Program | `program args…`, with `{path}` in arguments replaced by the repository path and the repository as working directory. `~` and `PATH` resolve as in a shell; on Windows a name without an extension tries the `PATHEXT` extensions first, so `code` finds `code.cmd` rather than VS Code's extensionless shell script |
 | Terminal | A terminal at the repository, optionally running a command and then leaving a shell open |
 | File manager | The system file manager at the repository |
+| App | A desktop app that takes no folder, by its Windows AppUserModelID (`Claude_pzs8sxrjxfjjc!Claude`) or macOS application name; the repository is ignored |
 
-Tools start detached: closing DevPanel never closes the editor it opened. Defaults are VS Code (`code`), Claude Code (`claude` in a terminal), Commits (`~/.commits/app/commits`), a terminal and the file manager.
+Tools start detached: closing DevPanel never closes the editor it opened. Defaults are VS Code (`code`), Cursor, Windsurf, Zed, Claude Code and Codex CLI (in a terminal), the Claude and ChatGPT desktop apps on Windows and macOS, Commits (`~/.commits/app/commits`), a terminal and the file manager. Defaults added in a later version reach an existing workspace once (`settings.tool_defaults`), so a removed default does not return.
+
+Each tool can be turned off. The page offers a tool only when it is on and installed: its program, or a terminal tool's command, resolves, or an app tool's package or bundle exists. Availability is checked again whenever the window regains focus.
 
 On Linux the terminal is `$TERMINAL` when it is a known one, else the system's `x-terminal-emulator`, else the first installed of cosmic-term, GNOME Terminal, Ptyxis, Konsole, kitty, Alacritty, WezTerm, foot, Xfce Terminal and xterm. Windows uses Windows Terminal when present and `cmd` otherwise; macOS uses Terminal.app.

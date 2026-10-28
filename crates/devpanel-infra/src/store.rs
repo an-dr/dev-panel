@@ -84,6 +84,7 @@ mod tests {
             favorite: false,
             web_url: Some("https://code.example/bones".into()),
             name_style: Some(NameStyle { font: "orbitron".into(), weight: 700, italic: true }),
+            last_pulled: Some(1_700_000_000),
         });
         store.save(&workspace).unwrap();
         assert_eq!(store.load().unwrap(), workspace);

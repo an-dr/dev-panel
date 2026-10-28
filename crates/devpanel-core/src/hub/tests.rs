@@ -467,7 +467,7 @@ fn custom_install_command_comes_first() {
 #[test]
 fn tools_without_names_are_refused() {
     let f = fixture(FakeGit::default());
-    let tool = Tool { id: ToolId("x".into()), name: " ".into(), launch: Launch::FileManager };
+    let tool = Tool { id: ToolId("x".into()), name: " ".into(), launch: Launch::FileManager, enabled: true };
     assert!(f.hub.save_tools(vec![tool]).is_err());
 }
 
@@ -591,4 +591,41 @@ fn an_edit_sets_and_clears_the_name_style() {
     assert_eq!(f.hub.update_repo(&id, edit).unwrap().name_style, Some(style));
     let edit = RepoEdit { name: "a".into(), ..RepoEdit::default() };
     assert_eq!(f.hub.update_repo(&id, edit).unwrap().name_style, None);
+}
+
+#[test]
+fn a_repository_is_due_for_a_background_pull_once_per_period() {
+    let git = FakeGit::default().with_repo("/home/u/a", Some("https://x/a.git")).with_repo("/home/u/b", None);
+    let f = fixture(git);
+    let a = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    f.hub.add_existing(Path::new("/home/u/b")).unwrap();
+    assert!(f.hub.take_due_pulls(1_000_000).unwrap().is_empty(), "off by default");
+
+    let settings = Settings { auto_pull_hours: 2, ..f.hub.workspace().settings };
+    f.hub.save_settings(settings).unwrap();
+    assert_eq!(f.hub.take_due_pulls(1_000_000).unwrap(), vec![a.id.clone()], "only the one with a remote");
+    assert!(f.hub.take_due_pulls(1_000_000 + 7_199).unwrap().is_empty());
+    assert_eq!(f.hub.take_due_pulls(1_000_000 + 7_200).unwrap(), vec![a.id]);
+}
+
+#[test]
+fn a_background_pull_leaves_a_repository_without_upstream_or_with_local_commits_alone() {
+    let git = FakeGit::default().with_repo("/home/u/a", Some("https://x/a.git"));
+    let f = fixture(git);
+    let a = f.hub.add_existing(Path::new("/home/u/a")).unwrap();
+    f.hub.auto_pull(&a.id, &crate::ports::Silent).unwrap();
+    assert!(!f.git.calls().iter().any(|c| c.starts_with("pull")), "no upstream");
+
+    let set = |ahead| {
+        let mut statuses = f.git.statuses.lock().unwrap();
+        let status = statuses.get_mut(Path::new("/home/u/a")).unwrap();
+        status.upstream = Some("origin/main".into());
+        status.ahead = ahead;
+    };
+    set(1);
+    f.hub.auto_pull(&a.id, &crate::ports::Silent).unwrap();
+    assert!(!f.git.calls().iter().any(|c| c.starts_with("pull")), "local commits");
+    set(0);
+    f.hub.auto_pull(&a.id, &crate::ports::Silent).unwrap();
+    assert!(f.git.calls().iter().any(|c| c == "pull rebase=false /home/u/a"));
 }

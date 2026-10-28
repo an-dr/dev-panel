@@ -6,7 +6,11 @@
   const now = Date.now() / 1000;
   const tools = [
     { id: 'vscode', name: 'VS Code', launch: { kind: 'program', program: 'code', args: ['{path}'] } },
+    { id: 'zed', name: 'Zed', launch: { kind: 'program', program: 'zed', args: ['{path}'] }, enabled: true },
+    { id: 'cursor', name: 'Cursor', launch: { kind: 'program', program: 'cursor', args: ['{path}'] }, enabled: true },
     { id: 'claude', name: 'Claude Code', launch: { kind: 'terminal', command: 'claude' } },
+    { id: 'claude-app', name: 'Claude', launch: { kind: 'app', app: 'Claude' }, enabled: true },
+    { id: 'chatgpt-app', name: 'ChatGPT', launch: { kind: 'app', app: 'ChatGPT' }, enabled: false },
     { id: 'commits', name: 'Commits', launch: { kind: 'program', program: '~/.commits/app/commits', args: ['{path}'] } },
     { id: 'terminal', name: 'Terminal', launch: { kind: 'terminal', command: null } },
     { id: 'files', name: 'File manager', launch: { kind: 'file-manager' } },
@@ -22,7 +26,7 @@
       { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, install_command: null, favorite: false },
     ],
     tools,
-    settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, scan_depth: 3, start_page: 'last', sidebar_order: [], theme: 'system' },
+    settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, auto_pull_hours: 12, scan_depth: 3, start_page: 'last', sidebar_order: [], theme: 'system' },
   };
   const base = { files: [], exists: true, is_repo: true, branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0, stashes: 0, operation: null, has_commits: true, remote_url: 'https://github.com/x/y.git' };
   const commit = (subject, hours) => ({ hash: Math.random().toString(16).slice(2, 9), subject, author: 'Andrei', time: now - hours * 3600 });
@@ -65,7 +69,7 @@
   let registered = false;
   let installed = null;
   const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)), web_url: statuses[id].remote_url ? statuses[id].remote_url.replace(/\.git$/, '') : null });
-  const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview', commits: true });
+  const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview', commits: true, available: workspace.tools.filter((t) => t.id !== 'cursor').map((t) => t.id) });
   let job = 0;
 
   function runJob(repo, title, lines, after, fail) {

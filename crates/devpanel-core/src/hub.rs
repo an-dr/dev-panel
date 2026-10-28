@@ -52,7 +52,10 @@ pub struct Hub {
 
 impl Hub {
     pub fn open(ports: Ports, platform: Platform) -> HubResult<Self> {
-        let workspace = ports.store.load()?;
+        let mut workspace = ports.store.load()?;
+        if workspace.adopt_new_default_tools() {
+            ports.store.save(&workspace)?;
+        }
         // Once at start, so a list deleted while DevPanel was closed returns.
         let _ = ports.source.publish(&workspace.repos);
         Ok(Self { ports, platform, workspace: Mutex::new(workspace), revision: AtomicU64::new(0) })
@@ -275,6 +278,7 @@ impl Hub {
                 favorite: entry.favorite,
                 web_url: non_empty(entry.web_url.clone()),
                 name_style: entry.name_style.clone().or_else(|| new_name_style(ws)),
+                last_pulled: None,
             };
             ws.repos.push(repo.clone());
             Ok(repo)
@@ -306,6 +310,44 @@ impl Hub {
 
     pub fn pull(&self, id: &RepoId, out: &dyn Output) -> HubResult<()> {
         self.ports.git.pull(&self.repo(id)?.path, false, out)
+    }
+
+    /// The repositories with a remote that were not pulled within
+    /// `auto_pull_hours` of `now` (Unix seconds), each stamped as pulled at
+    /// `now` so it is due again only after another period, whether its pull
+    /// then succeeds or not. Empty when background pulls are off.
+    pub fn take_due_pulls(&self, now: u64) -> HubResult<Vec<RepoId>> {
+        let hours = self.lock().settings.auto_pull_hours;
+        if hours == 0 {
+            return Ok(Vec::new());
+        }
+        let period = u64::from(hours) * 3600;
+        let due = |r: &Repo| r.remote.is_some() && r.last_pulled.is_none_or(|t| now.saturating_sub(t) >= period);
+        if !self.lock().repos.iter().any(due) {
+            return Ok(Vec::new());
+        }
+        self.mutate(|ws| {
+            let mut ids = Vec::new();
+            for repo in ws.repos.iter_mut().filter(|r| due(r)) {
+                repo.last_pulled = Some(now);
+                ids.push(repo.id.clone());
+            }
+            Ok(ids)
+        })
+    }
+
+    /// A background pull: fast-forwards the repository when that can work
+    /// without a decision from the user, and otherwise does nothing: no
+    /// upstream, an operation in progress, conflicts, or local commits the
+    /// remote does not have.
+    pub fn auto_pull(&self, id: &RepoId, out: &dyn Output) -> HubResult<()> {
+        let path = self.repo(id)?.path;
+        let status = self.ports.git.status(&path);
+        if !status.is_repo || status.upstream.is_none() || status.operation.is_some() || status.conflicted > 0 || status.ahead > 0 {
+            out.line("skipped: the repository cannot be fast-forwarded safely");
+            return Ok(());
+        }
+        self.ports.git.pull(&path, false, out)
     }
 
     pub fn push(&self, id: &RepoId, out: &dyn Output) -> HubResult<()> {
@@ -370,6 +412,12 @@ impl Hub {
         let args = CommitsLink::for_status(&status, theme, theme_file)
             .ok_or_else(|| HubError::Invalid(format!("{} has no repository to open", repo.path.display())))?;
         self.ports.launcher.launch(&tool, &repo.path, &args)
+    }
+
+    /// The tools whose program is installed, in list order. Starts nothing.
+    pub fn available_tools(&self) -> Vec<ToolId> {
+        let tools = self.lock().tools.clone();
+        tools.into_iter().filter(|t| self.ports.launcher.is_available(t)).map(|t| t.id).collect()
     }
 
     /// Whether "Open in Commits" can work: the Commits tool is still in the

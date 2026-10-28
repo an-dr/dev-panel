@@ -121,6 +121,7 @@ bridge.on((message) => {
       state.platform = message.platform;
       state.version = message.version;
       state.commits = message.commits;
+      state.available = new Set(message.available || []);
       state.settingsStale = true;
       if (!state.started) {
         state.started = true;
@@ -179,6 +180,8 @@ function onJob(message) {
 
 const repoById = (id) => state.workspace.repos.find((repo) => repo.id === id);
 const toolById = (id) => state.workspace.tools.find((tool) => tool.id === id);
+// Tools offered for opening a repository: enabled in Settings and installed.
+const usableTools = () => state.workspace.tools.filter((tool) => tool.enabled !== false && state.available?.has(tool.id));
 const runningJob = (repoId) => [...state.jobs.values()].reverse().find((j) => j.repo === repoId && j.state === 'running');
 
 // ---- presentation helpers -------------------------------------------------
@@ -219,7 +222,7 @@ const FILTERS = [
   { id: 'clean', label: 'Clean', test: (h) => h === 'clean' },
 ];
 
-const TOOL_ICON = { program: 'code', terminal: 'terminal', 'file-manager': 'folder' };
+const TOOL_ICON = { program: 'code', terminal: 'terminal', 'file-manager': 'folder', app: 'external' };
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const changes = (s) => s.staged + s.unstaged + s.untracked + s.conflicted;
@@ -666,7 +669,7 @@ const VIEWS = {
 
   settings() {
     const s = state.workspace.settings;
-    const toolOptions = state.workspace.tools.map((t) => `<option value="${esc(t.id)}" ${s.default_tool === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+    const toolOptions = usableTools().map((t) => `<option value="${esc(t.id)}" ${s.default_tool === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
     return `
       <form class="panel" data-form="settings">
         <h2>General</h2><p>Where repositories go and how DevPanel keeps them current.</p>
@@ -684,6 +687,12 @@ const VIEWS = {
               .map(([v, l]) => `<option value="${v}" ${Number(s.auto_fetch_minutes) === v ? 'selected' : ''}>${l}</option>`).join('')}
           </select>
           <span class="hint">“Behind” is only as fresh as the last fetch.</span>
+          <label for="s-pull">Pull automatically</label>
+          <select id="s-pull" class="field" name="auto_pull_hours">
+            ${[[0, 'Never'], [1, 'When not pulled for 1 hour'], [4, 'When not pulled for 4 hours'], [12, 'When not pulled for 12 hours'], [24, 'When not pulled for a day'], [168, 'When not pulled for a week']]
+              .map(([v, l]) => `<option value="${v}" ${Number(s.auto_pull_hours) === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+          <span class="hint">Fast-forward only, in the background; a repository with local commits or a merge in progress is left alone.</span>
           <label for="s-depth">Scan depth</label>
           <input id="s-depth" class="field" type="number" min="1" max="8" name="scan_depth" value="${esc(s.scan_depth)}">
           <span class="hint">How many folder levels “Scan a folder” searches.</span>
@@ -717,9 +726,9 @@ const VIEWS = {
         <div class="panel-actions"><button class="btn primary" type="submit">${icon('check')}Save settings</button></div>
       </form>
       <form class="panel" data-form="tools">
-        <h2>Tools</h2><p>What a repository can be opened in. <span class="mono">{path}</span> in arguments becomes the repository path. A terminal tool opens a terminal in the repository and runs its command there.</p>
+        <h2>Tools</h2><p>What a repository can be opened in. <span class="mono">{path}</span> in arguments becomes the repository path. A terminal tool opens a terminal in the repository and runs its command there; an app tool opens a desktop app by its ${state.platform === 'macos' ? 'application name' : 'AppUserModelID'}. Tools that are turned off or not installed are not offered.</p>
         <table class="tools-table">
-          <thead><tr><th style="width:22%">Name</th><th style="width:16%">Kind</th><th>Program / command</th><th style="width:26%">Arguments</th><th></th></tr></thead>
+          <thead><tr><th style="width:44px">On</th><th style="width:22%">Name</th><th style="width:16%">Kind</th><th>Program / command</th><th style="width:26%">Arguments</th><th></th></tr></thead>
           <tbody id="tool-rows">${state.workspace.tools.map(toolRow).join('')}</tbody>
         </table>
         <div class="panel-actions">
@@ -904,7 +913,8 @@ function favStar(repo) {
 }
 
 function openButton(repo, size = 'sm') {
-  const tool = toolById(state.workspace.settings.default_tool) || state.workspace.tools[0];
+  const usable = usableTools();
+  const tool = usable.find((t) => t.id === state.workspace.settings.default_tool) || usable[0];
   if (!tool) return '';
   return `<span class="split">
       <button class="btn ${size} primary" data-action="open" data-repo="${esc(repo.id)}" title="Open in ${esc(tool.name)}">${icon(TOOL_ICON[tool.launch.kind] || 'code')}${esc(tool.name)}</button>
@@ -1002,19 +1012,25 @@ function jobView(job) {
 
 function toolRow(tool) {
   const kind = tool.launch.kind;
-  const program = kind === 'program' ? tool.launch.program : kind === 'terminal' ? (tool.launch.command || '') : '';
+  const program = kind === 'program' ? tool.launch.program : kind === 'terminal' ? (tool.launch.command || '') : kind === 'app' ? tool.launch.app : '';
   const args = kind === 'program' ? joinArgs(tool.launch.args) : '';
+  const missing = state.available && !state.available.has(tool.id) && toolById(tool.id);
   return `
-    <tr data-tool="${esc(tool.id)}">
-      <td><input class="field" name="name" value="${esc(tool.name)}"></td>
+    <tr data-tool="${esc(tool.id)}" class="${missing ? 'missing' : ''}">
+      <td><input type="checkbox" name="enabled" ${tool.enabled !== false ? 'checked' : ''} title="Offer this tool"></td>
+      <td><input class="field" name="name" value="${esc(tool.name)}">${missing ? '<span class="note">not installed</span>' : ''}</td>
       <td><select class="field" name="kind" data-action="tool-kind">
-        ${[['program', 'Program'], ['terminal', 'Terminal'], ['file-manager', 'File manager']]
+        ${[['program', 'Program'], ['terminal', 'Terminal'], ['app', 'App'], ['file-manager', 'File manager']]
           .map(([v, l]) => `<option value="${v}" ${kind === v ? 'selected' : ''}>${l}</option>`).join('')}
       </select></td>
-      <td><input class="field mono" name="program" value="${esc(program)}" placeholder="${kind === 'terminal' ? 'command to run (optional)' : kind === 'program' ? 'program or path' : '—'}" ${kind === 'file-manager' ? 'disabled' : ''}></td>
+      <td><input class="field mono" name="program" value="${esc(program)}" placeholder="${toolPlaceholder(kind)}" ${kind === 'file-manager' ? 'disabled' : ''}></td>
       <td><input class="field mono" name="args" value="${esc(args)}" placeholder="{path}" ${kind !== 'program' ? 'disabled' : ''}></td>
       <td><button type="button" class="btn sm ghost icon-only danger" data-action="remove-tool" title="Remove">${icon('trash')}</button></td>
     </tr>`;
+}
+
+function toolPlaceholder(kind) {
+  return { terminal: 'command to run (optional)', program: 'program or path', app: state.platform === 'macos' ? 'application name' : 'Package_family!App' }[kind] || '—';
 }
 
 function joinArgs(args) {
@@ -1065,7 +1081,7 @@ function renderDrawer() {
     </div>
     <div class="drawer-body">
       ${entry && entry.fixes.length ? `<section><h3>Suggested</h3><div class="card-actions">${fixButtons(repo, entry, 9)}</div></section>` : ''}
-      <section><h3>Open in</h3>${state.commits && !NOTHING_TO_OPEN.has(entry?.health) ? `<button class="btn primary open-commits" data-action="open-in-commits" data-repo="${esc(repo.id)}">${icon('graph')}Open in Commits</button>` : ''}<div class="tool-list">${state.workspace.tools.map((t) =>
+      <section><h3>Open in</h3>${state.commits && !NOTHING_TO_OPEN.has(entry?.health) ? `<button class="btn primary open-commits" data-action="open-in-commits" data-repo="${esc(repo.id)}">${icon('graph')}Open in Commits</button>` : ''}<div class="tool-list">${usableTools().map((t) =>
         `<button class="btn" data-action="open" data-repo="${esc(repo.id)}" data-tool="${esc(t.id)}">${icon(TOOL_ICON[t.launch.kind] || 'code')}${esc(t.name)}</button>`).join('')}${webUrl(repo) ? `<button class="btn" data-action="open-url" data-url="${esc(webUrl(repo))}" title="${esc(webUrl(repo))}">${icon('globe')}Web page</button>` : ''}</div></section>
       ${s && !s.is_repo ? '' : `<section><h3>Git</h3><div class="action-grid">
         ${action('git', 'cloudDown', 'Fetch', 'data-op="fetch"')}
@@ -1156,7 +1172,7 @@ function closeMenu() {
 function toolMenu(anchor, repoId) {
   showMenu(anchor, [
     { label: 'Open in' },
-    ...state.workspace.tools.map((tool) => ({
+    ...usableTools().map((tool) => ({
       text: tool.name, icon: TOOL_ICON[tool.launch.kind] || 'code',
       action: () => bridge.send({ type: 'open', repo: repoId, tool: tool.id }),
     })),
@@ -1673,7 +1689,7 @@ document.addEventListener('change', (event) => {
     const row = el.closest('tr');
     const kind = el.value;
     row.querySelector('[name=program]').disabled = kind === 'file-manager';
-    row.querySelector('[name=program]').placeholder = kind === 'terminal' ? 'command to run (optional)' : kind === 'program' ? 'program or path' : '—';
+    row.querySelector('[name=program]').placeholder = toolPlaceholder(kind);
     row.querySelector('[name=args]').disabled = kind !== 'program';
   }
 });
@@ -1690,6 +1706,7 @@ document.addEventListener('submit', (event) => {
         clone_root: data.get('clone_root'),
         default_tool: data.get('default_tool') || null,
         auto_fetch_minutes: Number(data.get('auto_fetch_minutes')),
+        auto_pull_hours: Number(data.get('auto_pull_hours')),
         scan_depth: Math.max(1, Math.min(8, Number(data.get('scan_depth')) || 3)),
         theme: data.get('theme') || 'system',
         start_page: data.get('start_page') || 'last',
@@ -1704,8 +1721,9 @@ document.addEventListener('submit', (event) => {
       const kind = field('kind');
       const launch = kind === 'program' ? { kind, program: field('program'), args: splitArgs(field('args')) }
         : kind === 'terminal' ? { kind, command: field('program') || null }
-          : { kind };
-      return { id: row.dataset.tool, name: field('name'), launch };
+          : kind === 'app' ? { kind, app: field('program') }
+            : { kind };
+      return { id: row.dataset.tool, name: field('name'), launch, enabled: row.querySelector('[name=enabled]').checked };
     });
     bridge.send({ type: 'save-tools', tools });
     toast('Tools saved', 'success');

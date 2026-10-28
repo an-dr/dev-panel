@@ -16,4 +16,4 @@ pub use repo::{repo_name_from_url, NameStyle, Repo, RepoExport, RepoId, RepoList
 pub use status::{CommitSummary, FileChange, Operation, RepoStatus};
 pub use tool::{Launch, Tool, ToolId};
 pub use web_url::web_url_from_remote;
-pub use workspace::{Settings, Workspace};
+pub use workspace::{Settings, Workspace, TOOL_DEFAULTS};

@@ -103,7 +103,9 @@ pub enum JobState {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Event {
     /// `commits`: whether "Open in Commits" can work right now.
-    Workspace { workspace: Workspace, platform: &'static str, version: &'static str, commits: bool },
+    /// `available`: the tools whose program is installed; the page offers
+    /// only those that are also enabled.
+    Workspace { workspace: Workspace, platform: &'static str, version: &'static str, commits: bool, available: Vec<ToolId> },
     Status { repo: RepoId, status: RepoStatus, health: Health, fixes: Vec<Fix>, web_url: Option<String> },
     Job { job: u64, repo: Option<RepoId>, title: String, state: JobState, error: Option<String> },
     Log { job: u64, line: String },

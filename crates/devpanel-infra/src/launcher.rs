@@ -29,14 +29,44 @@ impl Launcher for SystemLauncher {
                 bones_kernel_launch::open_terminal(path, run).map_err(HubError::Command)
             }
             Launch::FileManager => start(file_manager(), vec![path.to_string_lossy().into_owned()], path, &tool.name),
+            Launch::App { app } => start_app(app, path, &tool.name),
         }
     }
 
     fn is_available(&self, tool: &Tool) -> bool {
-        match &tool.launch {
-            Launch::Program { program, .. } => bones_kernel_launch::resolve(program).is_some(),
-            Launch::Terminal { .. } | Launch::FileManager => true,
+        if let Launch::App { app } = &tool.launch {
+            return app_installed(app);
         }
+        tool.required_program().is_none_or(|program| bones_kernel_launch::resolve(program).is_some())
+    }
+}
+
+/// Opens a desktop app by its platform id ([`Launch::App`]): through the
+/// shell's app folder on Windows, which starts packaged (Store) apps that
+/// have no program on `PATH`, and `open -a` on macOS.
+fn start_app(app: &str, cwd: &Path, name: &str) -> HubResult<()> {
+    if cfg!(windows) {
+        start("explorer", vec![format!("shell:AppsFolder\\{app}")], cwd, name)
+    } else if cfg!(target_os = "macos") {
+        start("open", vec!["-a".into(), app.into()], cwd, name)
+    } else {
+        Err(HubError::Invalid(format!("the {name} app cannot be opened on this system")))
+    }
+}
+
+/// Whether the app [`start_app`] would open is installed: on Windows its
+/// package has a data folder for this user, on macOS its bundle is in an
+/// Applications folder.
+fn app_installed(app: &str) -> bool {
+    if cfg!(windows) {
+        let family = app.split('!').next().unwrap_or_default();
+        !family.is_empty() && dirs::data_local_dir().is_some_and(|dir| dir.join("Packages").join(family).is_dir())
+    } else if cfg!(target_os = "macos") {
+        let bundle = format!("{app}.app");
+        let home_apps = dirs::home_dir().map(|home| home.join("Applications").join(&bundle));
+        Path::new("/Applications").join(&bundle).is_dir() || home_apps.is_some_and(|path| path.is_dir())
+    } else {
+        false
     }
 }
 

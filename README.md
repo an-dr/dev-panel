@@ -14,8 +14,8 @@ Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://gith
 | --- | --- |
 | Track | Clone from a URL, add a local folder, or scan a folder and add every repository under it. Group repositories and rename them |
 | See | The condition of every repository: branch, upstream, ahead/behind, staged/modified/untracked/conflicted files, stashes, last commit, unfinished merges or rebases, missing folders |
-| Fix | One-click suggested fixes — pull, push, sync, publish a new branch, commit all, stash, re-clone a missing folder — plus fetch, pull, push and sync on demand, or for all at once |
-| Open | Each repository in any tool you configure. VS Code, Claude Code (in a terminal), Commits, a terminal and the file manager are set up by default — or its web page on GitHub, GitLab, Bitbucket and other hosts |
+| Fix | One-click suggested fixes — pull, push, sync, publish a new branch, commit all, stash, re-clone a missing folder — plus fetch, pull, push and sync on demand, or for all at once. Optionally fetch on a timer and fast-forward repositories not pulled for a chosen number of hours |
+| Open | Each repository in any tool you configure. VS Code, Cursor, Windsurf, Zed, Claude Code, Codex CLI, the Claude and ChatGPT apps, Commits, a terminal and the file manager are set up by default; tools that are not installed or turned off are hidden. Or open its web page on GitHub, GitLab, Bitbucket and other hosts |
 | Install | Run the install or build script a repository ships (`install.ps1`, `install.sh`, `scripts/…`), an ecosystem default (`cargo install`, `npm install`, …), or your own command, and watch its output live |
 
 ## Getting it
