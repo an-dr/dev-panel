@@ -917,7 +917,7 @@ function openButton(repo, size = 'sm') {
   const tool = usable.find((t) => t.id === state.workspace.settings.default_tool) || usable[0];
   if (!tool) return '';
   return `<span class="split">
-      <button class="btn ${size} primary" data-action="open" data-repo="${esc(repo.id)}" title="Open in ${esc(tool.name)}">${icon(TOOL_ICON[tool.launch.kind] || 'code')}${esc(tool.name)}</button>
+      <button class="btn ${size} primary" data-action="open" data-repo="${esc(repo.id)}" data-tool="${esc(tool.id)}" title="Open in ${esc(tool.name)}">${icon(TOOL_ICON[tool.launch.kind] || 'code')}${esc(tool.name)}</button>
       <button class="btn ${size} primary" data-action="open-menu" data-repo="${esc(repo.id)}" title="Open in…">${icon('chevronDown')}</button>
     </span>`;
 }

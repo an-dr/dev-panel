@@ -430,14 +430,21 @@ impl Hub {
         self.lock().tools.iter().find(|t| t.id.0 == ToolId::COMMITS).cloned()
     }
 
+    /// `id`, or else the tool the page offers by default: the default tool
+    /// when it is still listed, enabled and installed, otherwise the first
+    /// tool that is, so a removed default does not break "Open".
     fn tool(&self, id: Option<&ToolId>) -> HubResult<Tool> {
         let ws = self.lock();
-        let id = id.or(ws.settings.default_tool.as_ref());
         let found = match id {
-            Some(id) => ws.tools.iter().find(|t| &t.id == id),
-            None => ws.tools.first(),
+            Some(id) => ws.tools.iter().find(|t| &t.id == id).cloned(),
+            None => {
+                let usable = |t: &&Tool| t.enabled && self.ports.launcher.is_available(t);
+                let default = ws.settings.default_tool.as_ref();
+                let preferred = ws.tools.iter().filter(usable).find(|t| Some(&t.id) == default);
+                preferred.or_else(|| ws.tools.iter().find(usable)).cloned()
+            }
         };
-        found.cloned().ok_or_else(|| HubError::NotFound("no tool is configured".into()))
+        found.ok_or_else(|| HubError::NotFound("no tool is configured".into()))
     }
 
     // ---- watching ------------------------------------------------------------

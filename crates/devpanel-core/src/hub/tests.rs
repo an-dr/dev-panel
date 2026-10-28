@@ -451,6 +451,21 @@ fn open_uses_the_default_tool_unless_one_is_named() {
 }
 
 #[test]
+fn open_falls_back_to_the_first_enabled_tool_when_the_default_is_gone() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/a", None));
+    let id = f.hub.add_existing(Path::new("/home/u/a")).unwrap().id;
+    let mut tools = f.hub.workspace().tools;
+    tools[0].enabled = false;
+    let first_enabled = tools[1].id.0.clone();
+    f.hub.save_tools(tools).unwrap();
+    let settings = Settings { default_tool: Some(ToolId("removed".into())), ..f.hub.workspace().settings };
+    f.hub.save_settings(settings).unwrap();
+
+    f.hub.open_in(&id, None).unwrap();
+    assert_eq!(*f.launcher.0.lock().unwrap(), [format!("{first_enabled} /home/u/a")]);
+}
+
+#[test]
 fn custom_install_command_comes_first() {
     let git = FakeGit::default().with_repo("/home/u/a", None);
     let fs = FakeFs { files: vec!["install.sh".into()], ..FakeFs::default() };
