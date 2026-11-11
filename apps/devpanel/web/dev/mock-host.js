@@ -133,6 +133,8 @@
       if (report) { installed = '0.0.0-preview'; registered = true; }
       setTimeout(() => emit([{ type: 'reply', request, ok: true, error: null, data: { installed, current: false, dir: '/home/me/.devpanel/app', report } }]), report ? 900 : 0);
     },
+    github: ({ request, action }) => emit([{ type: 'reply', request, ok: true, error: null, data: action === 'status' ? { login: 'octocat' } : action === 'repos' ? [{ name: 'octocat/hello-world', url: 'https://github.com/octocat/hello-world.git', private: false, description: 'A sample repository' }] : {} }]),
+    'git-config': ({ request, values }) => emit([{ type: 'reply', request, ok: true, error: null, data: values || { 'user.name': 'Mona Lisa', 'user.email': 'mona@example.com', 'init.defaultBranch': 'main' } }]),
     update: ({ request, action }) => emit([{ type: 'reply', request, ok: true, error: null, data: action === 'check' ? { available: '0.4.0' } : { staged: '0.4.0' } }]),
     'pick-folder': ({ request }) => emit([{ type: 'reply', request, ok: true, error: null, data: '/home/me/Picked' }]),
     'open-url': ({ url }) => emit([{ type: 'toast', level: 'info', message: `(preview) would open ${url}` }]),

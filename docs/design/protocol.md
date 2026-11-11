@@ -39,6 +39,8 @@ sequenceDiagram
 | `import` | `folder`, `dest?` | Reads the list in `folder` and clones every repository into `dest` or the clone folder, as a job |
 | `install-recipes` | `request`, `repo` | Answered with a `reply` holding the recipe list |
 | `run` | `repo`, `command`, `title?` | Runs a shell command in the repository, as a job |
+| `github` | `request`, `action` | Checks GitHub CLI sign-in, opens its browser sign-in in a terminal, or lists accessible repositories. Credentials remain with GitHub CLI. |
+| `git-config` | `request`, `values?` | Reads global Git configuration or updates only the supported keys supplied in `values`; empty values remove those global keys. |
 | `save-settings` | `settings` | Replaces the settings |
 | `save-tools` | `tools` | Replaces the tool list |
 | `pick-folder` | `request` | Native folder dialog; `reply` data is the path, or `""` when cancelled |

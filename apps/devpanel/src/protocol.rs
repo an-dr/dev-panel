@@ -51,6 +51,8 @@ pub enum Action {
     InstallRecipes { request: u64, repo: RepoId },
     /// Runs a shell command in the repository, e.g. an install recipe.
     Run { repo: RepoId, command: String, title: Option<String> },
+    Github { request: u64, action: String },
+    GitConfig { request: u64, values: Option<serde_json::Value> },
     SaveSettings { settings: Settings },
     SaveTools { tools: Vec<Tool> },
     PickFolder { request: u64 },

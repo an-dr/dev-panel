@@ -57,6 +57,10 @@ graph TD
 
 The dependency rule points inward. `devpanel-core` names no adapter and no engine, so every rule in it is tested with in-memory fakes. Only `main.rs` knows every concrete type; only `dashboard.rs` speaks the bones bus.
 
+## Accounts and Git configuration
+
+The app’s accounts adapter invokes GitHub CLI for authentication and repository discovery and Git for global configuration. Operations run off the UI thread, and only an allowlist of global Git keys can be edited. GitHub CLI retains its own credentials; no token enters the page protocol or workspace file.
+
 ## Why the app is a native module
 
 The bones way to build a product is a sandboxed WASM extension. DevPanel's work is the opposite of sandboxed — run `git`, launch editors, read arbitrary folders — so the whole product lives in one native module, and the page is the only UI ([ADR-001](adr/ADR-001-one-native-module-no-wasm-guest.md)). Everything the engine already offers is used rather than rebuilt: the window, the web panel, the folder picker, opening URLs, and the clipboard via the `os` module.

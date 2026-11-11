@@ -94,6 +94,11 @@ const state = {
   selected: null,
   expandedJobs: new Set(),
   settingsStale: true,
+  github: { login: null, repos: [], loading: false, loaded: false, error: '' },
+  githubSearch: '',
+  gitConfig: null,
+  gitConfigStale: true,
+  gitConfigError: '',
   /** Whether the start page was applied; it is, once, on the first workspace. */
   started: false,
   /** What is being dragged: `{ kind: 'repo', id }` or `{ kind: 'nav', key, section }`. */
@@ -311,7 +316,7 @@ function render() {
   const content = $('#content');
   // Forms keep what the user typed: the settings view is rebuilt only when
   // it is entered or the saved workspace changes, not on every status event.
-  const keep = state.view === 'settings' && content.dataset.view === 'settings' && !state.settingsStale;
+  const keep = (state.view === 'settings' && content.dataset.view === 'settings' && !state.settingsStale) || (state.view === 'git-config' && content.dataset.view === 'git-config' && !state.gitConfigStale);
   if (!keep) {
     const same = content.dataset.view === state.view;
     const scroll = same ? content.scrollTop : 0;
@@ -321,6 +326,7 @@ function render() {
     content.dataset.view = state.ready ? state.view : '';
     content.scrollTop = scroll;
     state.settingsStale = false;
+    state.gitConfigStale = false;
   }
   renderDrawer();
   hydrateIcons(document);
@@ -403,6 +409,8 @@ function renderSidebar() {
     ${groupItems ? `<div class="nav-label">Groups</div>${groupItems}` : ''}
     <div class="sidebar-footer">
       ${themeToggle}
+      ${nav('accounts', 'globe', 'Accounts')}
+      ${nav('git-config', 'settings', 'Git configuration')}
       ${nav('settings', 'settings', 'Settings')}
     </div>`;
 }
@@ -424,7 +432,9 @@ function goTo(key) {
   Object.assign(state, { view: 'overview', group: null, favoritesOnly: false, filter: 'all' });
   if (key === 'favorites') Object.assign(state, { view: 'repos', favoritesOnly: true });
   else if (key.startsWith('group:') && groups().some(([g]) => g && `group:${g}` === key)) Object.assign(state, { view: 'repos', group: key.slice('group:'.length) });
-  else if (['overview', 'repos', 'activity', 'settings'].includes(key)) state.view = key;
+  else if (['overview', 'repos', 'activity', 'settings', 'accounts', 'git-config'].includes(key)) state.view = key;
+  if (key === 'accounts' && !state.github.loaded && !state.github.loading) loadGithub();
+  if (key === 'git-config' && state.gitConfig === null) loadGitConfig();
   remember('page', pageKey());
 }
 
@@ -596,6 +606,8 @@ function renderTitle() {
     repos: [state.favoritesOnly ? 'Favorites' : state.group ?? 'Repositories', plural(visibleRepos().length, 'repository', 'repositories')],
     activity: ['Activity', c.running ? `${plural(c.running, 'job')} running` : 'Output of everything DevPanel ran'],
     settings: ['Settings', 'Tools, folders and behaviour'],
+    accounts: ['Accounts', 'Connect GitHub and add repositories'],
+    'git-config': ['Git configuration', 'Settings for your user account'],
   };
   const [title, subtitle] = titles[state.view];
   $('#page-title').textContent = title;
@@ -604,7 +616,58 @@ function renderTitle() {
 
 // ---- views ----------------------------------------------------------------
 
+const GIT_FIELDS = [
+  ['user.name', 'Name', 'Your name on commits'], ['user.email', 'Email', 'Your email on commits'],
+  ['init.defaultBranch', 'Default branch', 'For newly initialized repositories'],
+  ['pull.rebase', 'Pull strategy', 'true for rebase, false for merge, or merges'],
+  ['push.default', 'Push behavior', 'For example simple, current, or upstream'],
+  ['core.editor', 'Editor', 'Editor command used by Git'],
+  ['core.autocrlf', 'Line endings', 'true, false, or input'],
+  ['commit.gpgsign', 'Sign commits', 'true or false'],
+  ['user.signingkey', 'Signing key', 'Key ID or SSH public key'],
+];
+async function loadGithub() {
+  state.github.loading = true; state.github.error = ''; render();
+  try {
+    const status = await bridge.request({ type: 'github', action: 'status' });
+    state.github.login = status.login;
+    state.github.repos = status.login ? await bridge.request({ type: 'github', action: 'repos' }) : [];
+  } catch (e) { state.github.error = e.message; }
+  state.github.loading = false; state.github.loaded = true; render();
+}
+async function githubLogin() {
+  try { await bridge.request({ type: 'github', action: 'login' }); toast('Complete sign-in in the terminal, then refresh this page'); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function loadGitConfig() {
+  try { state.gitConfig = await bridge.request({ type: 'git-config', values: null }); state.gitConfigError = ''; }
+  catch (e) { state.gitConfig = {}; state.gitConfigError = e.message; }
+  state.gitConfigStale = true; render();
+}
 const VIEWS = {
+  accounts() {
+    const g = state.github;
+    const list = g.repos.map((repo) => `<div class="github-repo" data-github-repo="${esc(repo.name.toLowerCase())}" ${repo.name.toLowerCase().includes(state.githubSearch.toLowerCase()) ? '' : 'hidden'}><div><strong>${esc(repo.name)}</strong> ${repo.private ? '<span class="note">Private</span>' : ''}<p class="note">${esc(repo.description)}</p></div><button class="btn" data-action="github-clone" data-url="${esc(repo.url)}">${icon('cloudDown')}Clone</button></div>`).join('');
+    return `<section class="panel"><h2>GitHub</h2><p>Connect using GitHub CLI. GitHub CLI manages your sign-in; DevPanel never stores your credentials.</p>
+      ${g.loading ? '<p>Loading…</p>' : g.error ? `<p>${esc(g.error)}</p><p>Install GitHub CLI and try again.</p>` : g.login ? `<p>Signed in as <strong>${esc(g.login)}</strong>.</p>` : '<p>Not signed in. GitHub CLI will open a terminal and guide you through browser sign-in.</p>'}
+      <div class="field-row"><button class="btn primary" data-action="github-login">${icon('globe')}Sign in</button><button class="btn" data-action="github-refresh">${icon('refresh')}Refresh</button></div></section>
+      ${g.login ? `<section class="panel"><h2>Your GitHub repositories</h2><p>Choose a repository to clone into your configured clone folder. Private repositories are included when your account can access them.</p><input class="field" id="github-search" aria-label="Filter GitHub repositories" placeholder="Filter repositories by name" value="${esc(state.githubSearch)}">${list || '<p>No repositories found.</p>'}</section>` : ''}`;
+  },
+  'git-config'() {
+    if (!state.gitConfig) return '<div class="panel">Loading Git configuration…</div>';
+    if (state.gitConfigError) return `<div class="panel"><h2>Could not read Git configuration</h2><p>${esc(state.gitConfigError)}</p><button class="btn" data-action="git-config-refresh">Try again</button></div>`;
+    const options = { 'pull.rebase': [['', 'Git default'], ['false', 'Merge'], ['true', 'Rebase'], ['merges', 'Rebase, preserving merges']], 'push.default': [['', 'Git default'], ['simple', 'Current branch with matching upstream'], ['current', 'Current branch'], ['upstream', 'Upstream branch'], ['matching', 'Matching branches'], ['nothing', 'Do not push by default']], 'core.autocrlf': [['', 'Git default'], ['true', 'Windows-style checkout'], ['input', 'Convert on commit only'], ['false', 'No conversion']], 'commit.gpgsign': [['', 'Git default'], ['true', 'Sign commits'], ['false', 'Do not sign commits']] };
+    const fields = GIT_FIELDS.map(([key,label,hint]) => {
+      const value = state.gitConfig[key] || '';
+      let input = `<input class="field" id="git-${esc(key)}" name="${esc(key)}" value="${esc(value)}" placeholder="Not set">`;
+      if (options[key]) {
+        const choices = options[key].some(([v]) => v === value) ? options[key] : [...options[key], [value, `Current: ${value}`]];
+        input = `<select class="field" id="git-${esc(key)}" name="${esc(key)}">${choices.map(([v,l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+      }
+      return `<label for="git-${esc(key)}">${esc(label)}</label>${input}<span class="hint">${esc(hint)}</span>`;
+    }).join('');
+    return `<form class="panel" data-form="git-config"><h2>Global Git settings</h2><p>These settings apply to your user account. Repository settings and command-line options can override them. Leave a value empty to remove your global setting.</p><div class="form">${fields}</div><div class="panel-actions"><button class="btn primary" type="submit">${icon('check')}Save Git configuration</button></div></form>`;
+  },
   overview() {
     if (!state.workspace.repos.length) return welcome();
     const c = counts();
@@ -1617,6 +1680,10 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
 
 const ACTIONS = {
   page: (el) => goTo(el.dataset.page),
+  'github-refresh': () => loadGithub(),
+  'git-config-refresh': () => loadGitConfig(),
+  'github-login': () => githubLogin(),
+  'github-clone': (el) => { bridge.send({ type: 'clone', url: el.dataset.url, parent: state.workspace.settings.clone_root || null }); toast('Cloning… follow it in Activity'); },
   'reset-sidebar': () => saveSettings({ sidebar_order: [] }),
   filter: (el) => { state.view = 'repos'; state.favoritesOnly = false; state.filter = el.dataset.filter; },
   layout: (el) => { state.layout = el.dataset.layout; remember('layout', state.layout); },
@@ -1697,7 +1764,10 @@ document.addEventListener('change', (event) => {
 document.addEventListener('submit', (event) => {
   event.preventDefault();
   const form = event.target;
-  if (form.dataset.form === 'settings') {
+  if (form.dataset.form === 'git-config') {
+    const values = Object.fromEntries([...new FormData(form)].filter(([key, value]) => value !== (state.gitConfig[key] || '')));
+    bridge.request({ type: 'git-config', values }).then((result) => { state.gitConfig = result; state.gitConfigStale = true; render(); toast('Git configuration saved', 'success'); }).catch((e) => toast(e.message, 'error'));
+  } else if (form.dataset.form === 'settings') {
     const data = new FormData(form);
     bridge.send({
       type: 'save-settings',
@@ -1728,6 +1798,13 @@ document.addEventListener('submit', (event) => {
     bridge.send({ type: 'save-tools', tools });
     toast('Tools saved', 'success');
   }
+});
+
+document.addEventListener('input', (event) => {
+  if (event.target.id !== 'github-search') return;
+  state.githubSearch = event.target.value.trim();
+  const query = state.githubSearch.toLowerCase();
+  document.querySelectorAll('[data-github-repo]').forEach((row) => { row.hidden = !row.dataset.githubRepo.includes(query); });
 });
 
 $('#search').addEventListener('input', (event) => {

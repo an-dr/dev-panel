@@ -17,7 +17,7 @@ Plays `devpanel <path>` selecting repository r2, and names the files
 <view>-<theme>-<width>-r2.png.
 #>
 param(
-    [ValidateSet('overview', 'repos', 'activity', 'settings')]
+    [ValidateSet('overview', 'repos', 'activity', 'settings', 'accounts', 'git-config')]
     [string] $View = 'overview',
     [ValidateSet('system', 'light', 'dark')]
     [string] $Theme = 'light',

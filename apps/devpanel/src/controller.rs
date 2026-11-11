@@ -228,6 +228,14 @@ impl Controller {
                     hub.run_command(&repo, &command, out)
                 });
             }
+            Action::Github { request, action } => {
+                let events = self.events.clone();
+                jobs::spawn(move || { let _ = events.send(reply_event(request, crate::accounts::github(&action))); });
+            }
+            Action::GitConfig { request, values } => {
+                let events = self.events.clone();
+                jobs::spawn(move || { let _ = events.send(reply_event(request, crate::accounts::git_config(values))); });
+            }
             Action::SaveSettings { settings } => {
                 let result = self.hub.save_settings(settings);
                 self.after_workspace_change(result);

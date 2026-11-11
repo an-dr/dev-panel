@@ -527,3 +527,9 @@ textarea.field { height: auto; min-height: 90px; padding: 9px 11px; resize: vert
   .row > :nth-child(2), .row > :nth-child(3), .row > :nth-child(4) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.github-repo { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--border); padding: 12px 0; }
+.github-repo p { margin: 3px 0 0; color: var(--muted); }
+.github-repo > div { min-width: 0; overflow-wrap: anywhere; }
+
+.github-repo[hidden] { display: none; }

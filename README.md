@@ -51,6 +51,8 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 - Click a card to open its details: suggested fixes, changed files, every git action, tools, install, recent output.
 - **Drag** a card onto Favorites or a group in the sidebar to put it there, and drag sidebar items to reorder them. Settings → **Start on** picks the page DevPanel opens on: the one you were on, or any page or group.
 - **Activity** keeps the output of everything DevPanel ran.
+- **Accounts** uses GitHub CLI to sign in through your browser and browse and clone accessible GitHub repositories. Install `gh` first; DevPanel does not store its credentials.
+- **Git configuration** edits common global Git settings, including your commit identity, default branch, pull and push behavior, editor, line endings, and commit signing. Repository settings may override them.
 - **Settings** installs DevPanel when it runs from a download, sets the clone folder, the default tool, automatic fetching, the theme, the **density** (compact, comfortable or spacious), the tool list, and **exports or imports** your repository list to move it to another machine and clone everything there.
 - `/` searches, Ctrl+R refreshes, Esc closes whatever is open.
 - `devpanel <folder>` adds that repository, or every repository under the folder, and opens it. DevPanel keeps one window: a second launch hands its folder to the running one and brings it to the front.
