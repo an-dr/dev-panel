@@ -340,13 +340,13 @@ function render() {
   const content = $('#content');
   // Forms keep what the user typed: the settings view is rebuilt only when
   // it is entered or the saved workspace changes, not on every status event.
-  const keep = (state.view === 'settings' && content.dataset.view === 'settings' && !state.settingsStale) || (state.view === 'git-config' && content.dataset.view === 'git-config' && !state.gitConfigStale);
+  const keep = (['settings', 'tools'].includes(state.view) && content.dataset.view === state.view && !state.settingsStale) || (state.view === 'git-config' && content.dataset.view === 'git-config' && !state.gitConfigStale);
   if (!keep) {
     const same = content.dataset.view === state.view;
     const scroll = same ? content.scrollTop : 0;
     // Cards rise in when a view is entered, not again on every rebuild of it.
     content.classList.toggle('settled', same);
-    content.innerHTML = state.ready ? VIEWS[state.view]() : '<div class="empty"><div class="spinner" style="margin:0 auto"></div></div>';
+    content.innerHTML = state.ready ? settingsTabs() + VIEWS[state.view]() : '<div class="empty"><div class="spinner" style="margin:0 auto"></div></div>';
     content.dataset.view = state.ready ? state.view : '';
     content.scrollTop = scroll;
     state.settingsStale = false;
@@ -415,7 +415,7 @@ function renderSidebar() {
     return item(key, 'groups', 'layers', group, groups().find(([g]) => g === group)[1]);
   }).join('');
   const nav = (view, iconName, label) => `
-    <button class="nav-item ${state.view === view ? 'active' : ''}" data-action="page" data-page="${view}">
+    <button class="nav-item ${state.view === view || SETTINGS_TABS.some(([t]) => t === state.view) && view === 'settings' ? 'active' : ''}" data-action="page" data-page="${view}">
       ${icon(iconName)}<span class="label">${label}</span>
     </button>`;
   const theme = state.workspace.settings.theme || 'system';
@@ -434,7 +434,6 @@ function renderSidebar() {
     <div class="sidebar-footer">
       ${themeToggle}
       ${nav('accounts', 'globe', 'Accounts')}
-      ${nav('git-config', 'settings', 'Git configuration')}
       ${nav('settings', 'settings', 'Settings')}
     </div>`;
 }
@@ -444,6 +443,15 @@ function renderSidebar() {
 /** The sidebar's own pages: key, icon, label, in their default order. */
 // Repositories is the main page. The page keyed 'overview' is "Needs attention";
 // the key stays so saved start pages and sidebar orders keep working.
+// Settings is one page with tabs; each tab is its own view.
+// A gear for DevPanel's own settings, a computer for this machine's.
+const SETTINGS_TABS = [['settings', 'settings', 'General'], ['tools', 'settings', 'Tools'], ['git-config', 'monitor', 'Git']];
+function settingsTabs() {
+  if (!SETTINGS_TABS.some(([t]) => t === state.view)) return '';
+  return `<div class="tabs page-tabs">${SETTINGS_TABS.map(([view, i, label]) =>
+    `<button data-action="page" data-page="${view}" class="${state.view === view ? 'active' : ''}">${icon(i)}${label}</button>`).join('')}</div>`;
+}
+
 const MAIN_PAGES = [['repos', 'repo', 'Repositories'], ['favorites', 'star', 'Favorites'], ['overview', 'alert', 'Needs attention'], ['activity', 'activity', 'Activity']];
 
 /** The page on screen as a key: a view, `favorites`, or `group:<name>`. */
@@ -458,7 +466,7 @@ function goTo(key) {
   Object.assign(state, { view: 'repos', group: null, favoritesOnly: false, filter: 'all' });
   if (key === 'favorites') Object.assign(state, { view: 'repos', favoritesOnly: true });
   else if (key.startsWith('group:') && groups().some(([g]) => g && `group:${g}` === key)) Object.assign(state, { view: 'repos', group: key.slice('group:'.length) });
-  else if (['overview', 'repos', 'activity', 'settings', 'accounts', 'git-config'].includes(key)) state.view = key;
+  else if (['overview', 'repos', 'activity', 'settings', 'tools', 'accounts', 'git-config'].includes(key)) state.view = key;
   if (key === 'accounts' && !state.github.loaded && !state.github.loading) loadGithub();
   if (key === 'git-config' && state.gitConfig === null) loadGitConfig();
   remember('page', pageKey());
@@ -631,9 +639,10 @@ function renderTitle() {
     overview: ['Needs attention', state.ready ? `${plural(c.total, 'repository', 'repositories')} · ${c.attention ? `${c.attention} need attention` : 'all clean'}` : ''],
     repos: [state.favoritesOnly ? 'Favorites' : state.group ?? 'Repositories', plural(visibleRepos().length, 'repository', 'repositories')],
     activity: ['Activity', c.running ? `${plural(c.running, 'job')} running` : 'Output of everything DevPanel ran'],
-    settings: ['Settings', 'Tools, folders and behaviour'],
+    settings: ['Settings', 'Folders and behaviour'],
+    tools: ['Settings', 'What repositories open in'],
     accounts: ['Accounts', 'Connect GitHub and add repositories'],
-    'git-config': ['Git configuration', 'Settings for your user account'],
+    'git-config': ['Settings', 'Global Git settings for your user account'],
   };
   const [title, subtitle] = titles[state.view];
   $('#page-title').textContent = title;
@@ -751,9 +760,32 @@ const VIEWS = {
     return `<div class="jobs">${jobs.map(jobView).join('')}</div>`;
   },
 
-  settings() {
+  tools() {
     const s = state.workspace.settings;
     const toolOptions = usableTools().map((t) => `<option value="${esc(t.id)}" ${s.default_tool === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('');
+    return `
+      <form class="panel" data-form="tools">
+        <h2>Tools</h2><p>What a repository can be opened in. <span class="mono">{path}</span> in arguments becomes the repository path. A terminal tool opens a terminal in the repository and runs its command there; an app tool opens a desktop app by its ${state.platform === 'macos' ? 'application name' : 'AppUserModelID'}. Tools that are turned off or not installed are not offered.</p>
+        <div class="form" style="margin-bottom:14px">
+          <label for="s-tool">Default tool</label>
+          <select id="s-tool" class="field" name="default_tool">${toolOptions}</select>
+          <span class="hint">What the primary “Open” button on every card uses.</span>
+        </div>
+        <table class="tools-table">
+          <thead><tr><th style="width:44px">On</th><th style="width:22%">Name</th><th style="width:16%">Kind</th><th>Program / command</th><th style="width:26%">Arguments</th><th></th></tr></thead>
+          <tbody id="tool-rows">${state.workspace.tools.map(toolRow).join('')}</tbody>
+        </table>
+        <div class="panel-actions">
+          <button type="button" class="btn" data-action="add-tool">${icon('plus')}Add tool</button>
+          <span class="spacer"></span>
+          <button class="btn primary" type="submit">${icon('check')}Save tools</button>
+        </div>
+      </form>
+`;
+  },
+
+  settings() {
+    const s = state.workspace.settings;
     return `
       <form class="panel" data-form="settings">
         <h2>General</h2><p>Where repositories go and how DevPanel keeps them current.</p>
@@ -762,9 +794,6 @@ const VIEWS = {
           <div class="field-row"><input id="s-root" class="field mono" name="clone_root" value="${esc(s.clone_root)}">
             <button type="button" class="btn" data-action="browse" data-target="#s-root">${icon('folder')}Browse</button></div>
           <span class="hint">New clones go to a folder named after the repository inside this one.</span>
-          <label for="s-tool">Default tool</label>
-          <select id="s-tool" class="field" name="default_tool">${toolOptions}</select>
-          <span class="hint">What the primary “Open” button on every card uses.</span>
           <label for="s-fetch">Fetch automatically</label>
           <select id="s-fetch" class="field" name="auto_fetch_minutes">
             ${[[0, 'Never'], [5, 'Every 5 minutes'], [15, 'Every 15 minutes'], [30, 'Every 30 minutes'], [60, 'Every hour']]
@@ -808,18 +837,6 @@ const VIEWS = {
           <span class="form-value version-row" id="version-row">${versionRow()}</span>
         </div>
         <div class="panel-actions"><button class="btn primary" type="submit">${icon('check')}Save settings</button></div>
-      </form>
-      <form class="panel" data-form="tools">
-        <h2>Tools</h2><p>What a repository can be opened in. <span class="mono">{path}</span> in arguments becomes the repository path. A terminal tool opens a terminal in the repository and runs its command there; an app tool opens a desktop app by its ${state.platform === 'macos' ? 'application name' : 'AppUserModelID'}. Tools that are turned off or not installed are not offered.</p>
-        <table class="tools-table">
-          <thead><tr><th style="width:44px">On</th><th style="width:22%">Name</th><th style="width:16%">Kind</th><th>Program / command</th><th style="width:26%">Arguments</th><th></th></tr></thead>
-          <tbody id="tool-rows">${state.workspace.tools.map(toolRow).join('')}</tbody>
-        </table>
-        <div class="panel-actions">
-          <button type="button" class="btn" data-action="add-tool">${icon('plus')}Add tool</button>
-          <span class="spacer"></span>
-          <button class="btn primary" type="submit">${icon('check')}Save tools</button>
-        </div>
       </form>
       ${installationPanel()}
       <div class="panel">
@@ -1940,7 +1957,6 @@ document.addEventListener('submit', (event) => {
       settings: {
         ...state.workspace.settings,
         clone_root: data.get('clone_root'),
-        default_tool: data.get('default_tool') || null,
         auto_fetch_minutes: Number(data.get('auto_fetch_minutes')),
         auto_pull_hours: Number(data.get('auto_pull_hours')),
         scan_depth: Math.max(1, Math.min(8, Number(data.get('scan_depth')) || 3)),
@@ -1952,6 +1968,8 @@ document.addEventListener('submit', (event) => {
     });
     toast('Settings saved', 'success');
   } else if (form.dataset.form === 'tools') {
+    const defaultTool = new FormData(form).get('default_tool') || null;
+    if (defaultTool !== state.workspace.settings.default_tool) saveSettings({ default_tool: defaultTool });
     const tools = [...form.querySelectorAll('tr[data-tool]')].map((row) => {
       const field = (name) => row.querySelector(`[name=${name}]`).value.trim();
       const kind = field('kind');

@@ -533,6 +533,7 @@ textarea.field { height: auto; min-height: 90px; padding: 9px 11px; resize: vert
   border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; gap: 7px; align-items: center;
 }
 .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.page-tabs { margin: 0 0 16px; }
 
 #toasts { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .toast {

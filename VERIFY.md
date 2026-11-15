@@ -17,6 +17,14 @@ Everything decided without asking. Each item says what was assumed; tick it, or 
 - [ ] **One group per repository**, free text. Tags (several per repository) instead?
 - [ ] **License MIT**, matching bones and Commits.
 
+## Submodules and layout
+
+- [ ] **A submodule is not stored.** It is addressed as `<parent id>::<path>` and resolved under its parent; Favorite, Edit and Remove refuse it. Add to DevPanel tracks it as a repository of its own.
+- [ ] **A detached submodule is clean.** Detached HEAD is how a submodule sits at its recorded commit; the verdict rules shared with Commits are unchanged, only the page's verdict for a submodule.
+- [ ] **Every refresh reads every submodule**, nested ones included, with its own `git status`. Fine for a handful; slow for a repository with dozens.
+- [ ] **Changes inside a submodule appear on the next refresh** (focus or interval); only tracked repositories are watched.
+- [ ] **The window still opens at 1440×960 physical pixels**, one column of cards at 175–200 % scaling before the card minimum was lowered to 290 px. The real fix is in bones: scale the size by the display's content scale.
+
 ## Installation
 
 - [ ] **Same layout as Commits, built only on bones.** Launcher plus version folders through bones (`bones-launcher` and the kernel's upgrade module); `install.ps1` calls the built app's `--install`, which uses the upgrade module's own install instead of a PowerShell copy of that logic as Commits' script has. Nothing was copied from Commits, so nothing needed moving into bones. Tested on Linux with a scratch `HOME`: fresh install, second install pushing `0.1.0-<hash>`, launcher starting the newest version.
