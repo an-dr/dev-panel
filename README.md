@@ -2,7 +2,7 @@
 
 [![Built with AI assistance](https://img.shields.io/badge/built%20with-AI%20assistance-8a2be2)](#built-with-ai-assistance)
 
-A desktop dashboard for the git repositories you work on. Add them once, then see at a glance which ones need a pull, a push or a commit, fix them in one click, open them in VS Code, Claude Code or Commits, and run their install scripts — without a terminal or a file explorer.
+A desktop dashboard for the git repositories you work on. Add them once, then see at a glance which ones need a pull, a push or a commit, fix them in one click, open them in VS Code, Claude Code or Commits, and run their just recipes — without a terminal or a file explorer.
 
 Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://github.com/an-dr/bones) engine.
 
@@ -16,7 +16,7 @@ Inspired by Microsoft's discontinued Dev Home, built on the [bones](https://gith
 | See | The condition of every repository: branch, upstream, ahead/behind, staged/modified/untracked/conflicted files, stashes, last commit, unfinished merges or rebases, missing folders |
 | Fix | One-click suggested fixes — pull, push, sync, publish a new branch, commit all, stash, re-clone a missing folder — plus fetch, pull, push and sync on demand, or for all at once. Optionally fetch on a timer and fast-forward repositories not pulled for a chosen number of hours |
 | Open | Each repository in any tool you configure. VS Code, Cursor, Windsurf, Zed, Claude Code, Codex CLI, the Claude and ChatGPT apps, Commits, a terminal and the file manager are set up by default; tools that are not installed or turned off are hidden. Or open its web page on GitHub, GitLab, Bitbucket and other hosts |
-| Install | Run the install or build script a repository ships (`install.ps1`, `install.sh`, `scripts/…`), an ecosystem default (`cargo install`, `npm install`, …), or your own command, and watch its output live |
+| Run | The recipes of a repository's [justfile](https://github.com/casey/just), with their parameters, watch each one's output right under it, and fold rarely used ones away |
 
 ## Getting it
 
@@ -38,17 +38,17 @@ pwsh scripts/install.ps1
 
 That builds a release, installs it to `~/.devpanel/app`, and adds DevPanel to the application menu on Linux or the Start menu on Windows, with "Open in DevPanel" on folders. Run it again after pulling to update: the new build goes into a new version folder and starts next time, while the running one is left alone. [docs/installation.md](docs/installation.md) explains the layout, which is the same as Commits uses.
 
-To run without installing: `cargo run --release -p devpanel`.
+To run without installing: `cargo run --release -p devpanel`. With [just](https://github.com/casey/just), `just run` does that, and `just` lists the other tasks: `build`, `test`, `lint`, `install`.
 
 Your repositories, tools and settings live in one JSON file — `~/.config/devpanel/workspace.json` on Linux, `%APPDATA%\devpanel\workspace.json` on Windows, `~/Library/Application Support/devpanel/workspace.json` on macOS — outside the install, so updates keep them.
 
 ## Using it
 
 - **Add repository** (Ctrl+N) — clone, add a folder, or scan a folder.
-- **Overview** shows totals, your favorites, and every repository that needs attention; its suggested fixes sit in the details panel.
+- **Overview** shows totals, your favorites, and every repository that needs attention; its suggested fixes sit in the details window.
 - **Names** appear in pixel, cyber, tech and chip display fonts, picked per repository; Edit… changes the font, weight and italic.
 - **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and get their own section.
-- Click a card to open its details: suggested fixes, changed files, every git action, tools, install, recent output.
+- Click a card to open its details in a window over the page: suggested fixes, changed files, every git action, tools, just recipes, recent output.
 - **Drag** a card onto Favorites or a group in the sidebar to put it there, and drag sidebar items to reorder them. Settings → **Start on** picks the page DevPanel opens on: the one you were on, or any page or group.
 - **Activity** keeps the output of everything DevPanel ran.
 - **Accounts** uses GitHub CLI to sign in through your browser and browse and clone accessible GitHub repositories. Install `gh` first; DevPanel does not store its credentials.

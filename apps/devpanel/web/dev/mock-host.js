@@ -17,13 +17,13 @@
   ];
   const workspace = {
     repos: [
-      { id: 'r1', name: 'bones', path: '/home/me/Code/bones', remote: 'https://github.com/an-dr/bones.git', group: 'engine', install_command: null, favorite: true },
-      { id: 'r2', name: 'commits', path: '/home/me/Code/commits', remote: 'git@github.com:an-dr/commits.git', group: 'apps', install_command: null, favorite: false },
-      { id: 'r3', name: 'devpanel', path: '/home/me/Code/devpanel', remote: null, group: 'apps', install_command: null, favorite: true },
-      { id: 'r4', name: 'agents', path: '/home/me/Code/agents', remote: 'https://github.com/an-dr/agents.git', group: null, install_command: null, favorite: false },
-      { id: 'r5', name: 'microlog', path: '/home/me/Code/microlog', remote: 'https://github.com/an-dr/microlog.git', group: 'libs', install_command: null, favorite: false },
-      { id: 'r6', name: 'artificial-will-game-v2', path: '/home/me/Code/games/awg2', remote: 'https://github.com/an-dr/artificial-will-game-v2.git', group: 'games', install_command: null, favorite: false },
-      { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, install_command: null, favorite: false },
+      { id: 'r1', hidden_recipes: ['screenshot'], name: 'bones', path: '/home/me/Code/bones', remote: 'https://github.com/an-dr/bones.git', group: 'engine', favorite: true },
+      { id: 'r2', name: 'commits', path: '/home/me/Code/commits', remote: 'git@github.com:an-dr/commits.git', group: 'apps', favorite: false },
+      { id: 'r3', name: 'devpanel', path: '/home/me/Code/devpanel', remote: null, group: 'apps', favorite: true },
+      { id: 'r4', name: 'agents', path: '/home/me/Code/agents', remote: 'https://github.com/an-dr/agents.git', group: null, favorite: false },
+      { id: 'r5', name: 'microlog', path: '/home/me/Code/microlog', remote: 'https://github.com/an-dr/microlog.git', group: 'libs', favorite: false },
+      { id: 'r6', name: 'artificial-will-game-v2', path: '/home/me/Code/games/awg2', remote: 'https://github.com/an-dr/artificial-will-game-v2.git', group: 'games', favorite: false },
+      { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, favorite: false },
     ],
     tools,
     settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, auto_pull_hours: 12, scan_depth: 3, start_page: 'last', sidebar_order: [], theme: 'system' },
@@ -68,7 +68,7 @@
   // Unzipped and not yet installed: the Installation panel offers Install.
   let registered = false;
   let installed = null;
-  const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)), web_url: statuses[id].remote_url ? statuses[id].remote_url.replace(/\.git$/, '') : null });
+  const statusEvent = (id) => ({ type: 'status', repo: id, status: statuses[id], health: health(statuses[id]), fixes: fixes(statuses[id], workspace.repos.find((r) => r.id === id)), web_url: statuses[id].remote_url ? statuses[id].remote_url.replace(/\.git$/, '') : null, justfile: id === 'r1' || id === 'r3' });
   const workspaceEvent = () => ({ type: 'workspace', workspace: structuredClone(workspace), platform: 'linux', version: '0.0.0-preview', commits: true, available: workspace.tools.filter((t) => t.id !== 'cursor').map((t) => t.id) });
   let job = 0;
 
@@ -105,23 +105,27 @@
     open: ({ repo, tool }) => emit([{ type: 'toast', level: 'info', message: `(preview) would open ${name(repo)} in ${tool || 'the default tool'}` }]),
     'add-existing': ({ path }) => {
       const id = `r${workspace.repos.length + 10}`;
-      workspace.repos.push({ id, name: path.split(/[\\/]/).pop(), path, remote: null, group: null, install_command: null, favorite: false });
+      workspace.repos.push({ id, name: path.split(/[\\/]/).pop(), path, remote: null, group: null, favorite: false });
       statuses[id] = { ...base, last_commit: commit('Initial commit', 1) };
       emit([{ type: 'toast', level: 'info', message: `Added ${path}` }, workspaceEvent(), statusEvent(id)]);
     },
     scan: () => runJob(null, 'Scan ~/Code', ['0 new repositories'], () => emit([workspaceEvent()])),
     clone: ({ url }) => runJob(null, `Clone ${url.split('/').pop().replace(/\.git$/, '')}`, ['$ git clone --progress ' + url, 'Cloning into …', 'Receiving objects:  45%', 'Receiving objects: 100% (812/812)', 'Resolving deltas: 100%'], () => handlers['add-existing']({ path: `~/Code/${url.split('/').pop().replace(/\.git$/, '')}` })),
     remove: ({ repo }) => { workspace.repos = workspace.repos.filter((r) => r.id !== repo); emit([workspaceEvent()]); },
-    edit: ({ repo, name, group, install_command, web_url }) => { Object.assign(workspace.repos.find((r) => r.id === repo), { name, group: group || null, install_command: install_command || null, web_url: web_url || null }); emit([workspaceEvent()]); },
+    edit: ({ repo, name, group, web_url }) => { Object.assign(workspace.repos.find((r) => r.id === repo), { name, group: group || null, web_url: web_url || null }); emit([workspaceEvent()]); },
     'set-group': ({ repo, group }) => { workspace.repos.find((r) => r.id === repo).group = group || null; emit([workspaceEvent()]); },
     favorite: ({ repo, favorite }) => { workspace.repos.find((r) => r.id === repo).favorite = favorite; emit([workspaceEvent()]); },
     export: ({ folder }) => emit([{ type: 'toast', level: 'info', message: `(preview) would write devpanel-repos.json to ${folder}` }]),
     import: ({ folder }) => runJob(null, 'Import repositories', [`${folder}/devpanel-repos.json`, '2 repositories in the list', '  + example (~/Code/example)', '  skip bones (already tracked)', 'cloned 1 of 2'], () => emit([workspaceEvent()])),
-    'install-recipes': ({ request }) => emit([{ type: 'reply', request, ok: true, error: null, data: [
-      { label: 'install.ps1', command: 'pwsh -NoProfile -ExecutionPolicy Bypass -File install.ps1', source: 'install.ps1' },
-      { label: 'cargo install', command: 'cargo install --path .', source: 'Cargo.toml' },
-    ] }]),
-    run: ({ repo, command, title }) => runJob(repo, title || command, [`$ ${command}`, '   Compiling devpanel v0.1.0', '    Finished release [optimized]'], null, command.includes('fail') ? 'error: build failed' : null),
+    'just-recipes': ({ request }) => emit([{ type: 'reply', request, ok: true, error: null, data: { found: true, recipes: [
+      { name: 'build', doc: 'Build a debug binary.', parameters: [] },
+      { name: 'install', doc: 'Install for the current user.', parameters: [] },
+      { name: 'run', doc: 'Run from the working tree, optionally adding a folder.', parameters: [{ name: 'args', required: false, variadic: true }] },
+      { name: 'screenshot', doc: 'Screenshot a view at the given widths.', parameters: [{ name: 'view', required: false, variadic: false }, { name: 'theme', required: false, variadic: false }] },
+      { name: 'test', doc: 'Run every test.', parameters: [] },
+    ] } }]),
+    'hide-recipe': ({ repo, recipe, hidden }) => { const r = workspace.repos.find((x) => x.id === repo); r.hidden_recipes = (r.hidden_recipes || []).filter((n) => n !== recipe).concat(hidden ? [recipe] : []).sort(); emit([workspaceEvent()]); },
+    'just-run': ({ repo, recipe, args }) => runJob(repo, `just ${recipe}`, [`$ just ${recipe} ${args.join(' ')}`.trim(), '    Finished release [optimized]']),
     'save-settings': ({ settings }) => { workspace.settings = settings; emit([workspaceEvent()]); },
     'save-tools': ({ tools: next }) => { workspace.tools = next; emit([workspaceEvent()]); },
     desktop: ({ request, action }) => {

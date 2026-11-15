@@ -101,7 +101,6 @@ mod tests {
             path: PathBuf::from(path),
             remote: None,
             group: group.map(String::from),
-            install_command: None,
             favorite,
             ..Repo::default()
         }

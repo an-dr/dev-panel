@@ -62,6 +62,21 @@ pub fn capture(mut command: Command) -> Option<String> {
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim_end().to_string())
 }
 
+/// Runs `command` and returns its stdout. A failure carries what the command
+/// wrote to stderr, or says it could not start.
+pub fn capture_stdout(mut command: Command) -> HubResult<String> {
+    let program = command.get_program().to_string_lossy().into_owned();
+    let output = prepare_hidden(&mut command)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| HubError::Command(format!("could not start {program}: {error}")))?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+    }
+    let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(HubError::Command(if reason.is_empty() { format!("{program} exited with {}", output.status) } else { reason }))
+}
+
 /// Runs `command` to completion, forwarding stdout and stderr to `out` line
 /// by line. Progress output that redraws with `\r` is split there too, so a
 /// clone reports progress instead of one line at the end.
@@ -129,7 +144,7 @@ fn flush(pending: &mut Vec<u8>, emit: &mut impl FnMut(&str)) {
     if pending.is_empty() {
         return;
     }
-    let line = String::from_utf8_lossy(pending);
+    let line = strip_ansi(&String::from_utf8_lossy(pending));
     let line = line.trim_end();
     if !line.is_empty() {
         emit(line);
@@ -137,9 +152,58 @@ fn flush(pending: &mut Vec<u8>, emit: &mut impl FnMut(&str)) {
     pending.clear();
 }
 
+/// Removes terminal escape sequences (colours, cursor moves, window titles)
+/// that programs such as pwsh, cargo and just write even into a pipe, so the
+/// log shows only their text.
+fn strip_ansi(text: &str) -> String {
+    const ESC: char = '\x1b';
+    const BEL: char = '\x07';
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != ESC {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            // CSI: parameters and intermediates up to a final byte in @..~.
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            // OSC: up to BEL or ESC \.
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == BEL || (c == ESC && chars.next_if_eq(&'\\').is_some()) {
+                        break;
+                    }
+                }
+            }
+            // Character-set selection: ESC ( B and the like take one more character.
+            Some('(' | ')' | '*' | '+') => {
+                chars.next();
+            }
+            // Any other two-character escape.
+            _ => {}
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colour_codes_are_removed_from_output() {
+        let mut lines = Vec::new();
+        let pwsh = b"\x1b[31;1mRemove-Item: \x1b[0mdist.ps1:44\x1b[0m\n\x1b]0;title\x07done\x1b(B";
+        for_each_line(&pwsh[..], |l| lines.push(l.to_string()));
+        assert_eq!(lines, ["Remove-Item: dist.ps1:44", "done"]);
+    }
 
     #[test]
     fn carriage_returns_and_newlines_both_end_a_line() {

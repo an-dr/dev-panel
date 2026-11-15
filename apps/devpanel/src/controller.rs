@@ -201,12 +201,15 @@ impl Controller {
             // status, so they resend the workspace without a status storm —
             // which is what used to make the list flicker on every change.
             Action::Remove { repo } => self.after_workspace_change(self.hub.remove(&repo)),
-            Action::Edit { repo, name, group, install_command, web_url, name_style } => {
-                let edit = RepoEdit { name, group, install_command, web_url, name_style };
+            Action::Edit { repo, name, group, web_url, name_style } => {
+                let edit = RepoEdit { name, group, web_url, name_style };
                 self.after_workspace_change(self.hub.update_repo(&repo, edit).map(drop));
             }
             Action::Favorite { repo, favorite } => {
                 self.after_workspace_change(self.hub.set_favorite(&repo, favorite).map(drop));
+            }
+            Action::HideRecipe { repo, recipe, hidden } => {
+                self.after_workspace_change(self.hub.set_recipe_hidden(&repo, &recipe, hidden).map(drop));
             }
             Action::SetGroup { repo, group } => {
                 self.after_workspace_change(self.hub.set_group(&repo, group).map(drop));
@@ -218,14 +221,17 @@ impl Controller {
                 }
             }
             Action::Import { folder, dest } => self.import(folder, dest),
-            Action::InstallRecipes { request, repo } => {
-                let reply = self.hub.install_recipes(&repo).and_then(|r| to_json(&r));
+            Action::JustRecipes { request, repo } => {
+                let reply = self
+                    .hub
+                    .just_recipes(&repo)
+                    .and_then(|found| to_json(&serde_json::json!({ "found": found.is_some(), "recipes": found.unwrap_or_default() })));
                 self.reply(request, reply);
             }
-            Action::Run { repo, command, title } => {
-                let title = title.unwrap_or_else(|| command.clone());
+            Action::JustRun { repo, recipe, args } => {
+                let title = format!("just {recipe}");
                 self.job(Some(repo.clone()), title, Afterwards::Status, Runner::OwnThread, move |hub, out| {
-                    hub.run_command(&repo, &command, out)
+                    hub.run_just(&repo, &recipe, &args, out)
                 });
             }
             Action::Github { request, action } => {
@@ -498,7 +504,7 @@ fn status_event(hub: &Hub, repo: &RepoId) -> Event {
     match hub.status(repo) {
         Ok(status) => {
             let remote = hub.repo(repo).ok().and_then(|r| r.remote);
-            Event::status(repo.clone(), status, remote.as_deref())
+            Event::status(repo.clone(), status, remote.as_deref(), hub.has_justfile(repo))
         }
         Err(error) => Event::error(error.to_string()),
     }

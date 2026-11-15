@@ -8,7 +8,7 @@ sequenceDiagram
     participant H as Host
     P->>H: ready
     H-->>P: [workspace, status × n]
-    P->>H: install-recipes (request: 7)
+    P->>H: just-recipes (request: 7)
     H-->>P: [reply (request: 7, data)]
     P->>H: pull
     H-->>P: [job running]
@@ -32,15 +32,16 @@ sequenceDiagram
 | `scan` | `path` | Tracks every repository under a folder, as a job |
 | `clone` | `url`, `parent?` | Clones into `parent` or the clone folder, as a job |
 | `remove` | `repo` | Stops tracking; files stay on disk |
-| `edit` | `repo`, `name`, `group?`, `install_command?`, `web_url?`, `name_style?` | Updates a repository's settings; an empty value clears it |
+| `edit` | `repo`, `name`, `group?`, `web_url?`, `name_style?` | Updates a repository's settings; an empty value clears it |
 | `favorite` | `repo`, `favorite` | Pins a repository as a favourite, or clears the mark |
+| `hide-recipe` | `repo`, `recipe`, `hidden` | Moves a just recipe into the details window's Other group, or back out |
 | `set-group` | `repo`, `group?` | Moves a repository into a group, or out of every group when absent |
 | `export` | `folder` | Writes a portable repository list (`devpanel-repos.json`) into `folder` |
 | `import` | `folder`, `dest?` | Reads the list in `folder` and clones every repository into `dest` or the clone folder, as a job |
-| `install-recipes` | `request`, `repo` | Answered with a `reply` holding the recipe list |
-| `run` | `repo`, `command`, `title?` | Runs a shell command in the repository, as a job |
 | `github` | `request`, `action` | Checks GitHub CLI sign-in, opens its browser sign-in in a terminal, or lists accessible repositories. Credentials remain with GitHub CLI. |
 | `git-config` | `request`, `values?` | Reads global Git configuration or updates only the supported keys supplied in `values`; empty values remove those global keys. |
+| `just-recipes` | `request`, `repo` | Answered with a `reply` whose data is `{found, recipes}`: the Justfile's public recipes; `found` is false when the repository has no Justfile. A failing `just`, or none installed, is a `reply` with `ok` false |
+| `just-run` | `repo`, `recipe`, `args` | Runs `just <recipe> <args…>` in the repository, as a job. `args` are the parameter values in order; trailing empty values are left to the recipe's defaults |
 | `save-settings` | `settings` | Replaces the settings |
 | `save-tools` | `tools` | Replaces the tool list |
 | `pick-folder` | `request` | Native folder dialog; `reply` data is the path, or `""` when cancelled |
@@ -62,6 +63,6 @@ sequenceDiagram
 | `log` | `job`, `line` | One line of a job's output |
 | `reply` | `request`, `ok`, `data`, `error?` | The answer to a request-carrying message |
 | `toast` | `level`, `message` | A notice for the user: `info` or `error` |
-| `select` | `repo` | Select this repository and open its drawer. Sent after `devpanel <path>` opened a folder, at startup or from a later launch |
+| `select` | `repo` | Select this repository and open its details window. Sent after `devpanel <path>` opened a folder, at startup or from a later launch |
 
 A job's output arrives between its `running` and final `job` events. A job on a repository is always followed by that repository's `status`; a job that changes what is tracked is followed by `workspace` and every `status`.

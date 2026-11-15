@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::domain::{
-    detect_install_recipes, repo_name_from_url, CommitsLink, Fix, InstallRecipe, NameStyle, Platform, Repo, RepoExport, RepoId,
-    RepoList, RepoStatus, ResolvedTheme, Settings, Tool, ToolId, Workspace,
+    is_justfile, just_command, parse_just_dump, repo_name_from_url, CommitsLink, Fix, JustRecipe, NameStyle, Platform, Repo, RepoExport, RepoId,
+    RepoList, RepoStatus, ResolvedTheme, Settings, Tool, ToolId, Workspace, JUST_DUMP,
 };
 use crate::ports::{FileSystem, Git, Launcher, Output, RepoSource, RepoWatch, Shell, Store, WatchHandle};
 use crate::{HubError, HubResult};
@@ -32,7 +32,6 @@ pub struct Ports {
 pub struct RepoEdit {
     pub name: String,
     pub group: Option<String>,
-    pub install_command: Option<String>,
     pub web_url: Option<String>,
     /// `None` hands the choice back to the page.
     pub name_style: Option<NameStyle>,
@@ -167,7 +166,6 @@ impl Hub {
             let repo = ws.repos.iter_mut().find(|r| &r.id == id).ok_or_else(|| not_found(id))?;
             repo.name = name.to_string();
             repo.group = non_empty(edit.group);
-            repo.install_command = non_empty(edit.install_command);
             repo.web_url = non_empty(edit.web_url);
             repo.name_style = edit.name_style;
             Ok(repo.clone())
@@ -181,6 +179,19 @@ impl Hub {
         self.mutate(|ws| {
             let repo = ws.repos.iter_mut().find(|r| &r.id == id).ok_or_else(|| not_found(id))?;
             repo.favorite = favorite;
+            Ok(repo.clone())
+        })
+    }
+
+    /// Moves a just recipe under "Other" in the details window, or back.
+    pub fn set_recipe_hidden(&self, id: &RepoId, recipe: &str, hidden: bool) -> HubResult<Repo> {
+        self.mutate(|ws| {
+            let repo = ws.repos.iter_mut().find(|r| &r.id == id).ok_or_else(|| not_found(id))?;
+            repo.hidden_recipes.retain(|r| r != recipe);
+            if hidden {
+                repo.hidden_recipes.push(recipe.to_string());
+                repo.hidden_recipes.sort();
+            }
             Ok(repo.clone())
         })
     }
@@ -274,10 +285,10 @@ impl Hub {
                 path: dest.clone(),
                 remote: Some(remote.to_string()),
                 group: non_empty(entry.group.clone()),
-                install_command: non_empty(entry.install_command.clone()),
                 favorite: entry.favorite,
                 web_url: non_empty(entry.web_url.clone()),
                 name_style: entry.name_style.clone().or_else(|| new_name_style(ws)),
+                hidden_recipes: entry.hidden_recipes.clone(),
                 last_pulled: None,
             };
             ws.repos.push(repo.clone());
@@ -456,22 +467,33 @@ impl Hub {
         Ok(self.ports.watch.watch(&path, on_change))
     }
 
-    // ---- install -----------------------------------------------------------
+    // ---- just --------------------------------------------------------------
 
-    /// The repository's own install command first, then whatever its files
-    /// suggest.
-    pub fn install_recipes(&self, id: &RepoId) -> HubResult<Vec<InstallRecipe>> {
-        let repo = self.repo(id)?;
-        let mut recipes = Vec::new();
-        if let Some(command) = repo.install_command {
-            recipes.push(InstallRecipe { label: "Custom".into(), command, source: "repository settings".into() });
+    /// The public recipes of the repository's Justfile, or `None` when it has
+    /// no Justfile. Fails with just's own message when it is not installed or the
+    /// Justfile does not parse.
+    pub fn just_recipes(&self, id: &RepoId) -> HubResult<Option<Vec<JustRecipe>>> {
+        if !self.has_justfile(id) {
+            return Ok(None);
         }
-        let files = self.ports.fs.list_files(&repo.path, 2);
-        recipes.extend(detect_install_recipes(&files, self.platform));
-        Ok(recipes)
+        let path = self.repo(id)?.path;
+        let json = self.ports.shell.capture(JUST_DUMP, &path)?;
+        parse_just_dump(&json).map(Some).map_err(HubError::Command)
     }
 
-    pub fn run_command(&self, id: &RepoId, command_line: &str, out: &dyn Output) -> HubResult<()> {
+    /// Whether the repository has a Justfile in its root. Reads the folder
+    /// only; just is not started.
+    pub fn has_justfile(&self, id: &RepoId) -> bool {
+        self.repo(id).is_ok_and(|repo| self.ports.fs.list_files(&repo.path, 1).iter().any(|f| is_justfile(f)))
+    }
+
+    /// Runs one recipe with its argument values, in order.
+    pub fn run_just(&self, id: &RepoId, recipe: &str, args: &[String], out: &dyn Output) -> HubResult<()> {
+        let command = just_command(recipe, args, self.platform).map_err(HubError::Invalid)?;
+        self.run_command(id, &command, out)
+    }
+
+    fn run_command(&self, id: &RepoId, command_line: &str, out: &dyn Output) -> HubResult<()> {
         let command_line = command_line.trim();
         if command_line.is_empty() {
             return Err(HubError::Invalid("the command is empty".into()));

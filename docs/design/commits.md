@@ -1,6 +1,6 @@
 # Commits
 
-[Commits](https://github.com/an-dr/commits) is DevPanel's git client. Any repository opens in it from its card or drawer, a second repository reuses the running Commits window, and each problem DevPanel reports opens in the Commits view where it is fixed.
+[Commits](https://github.com/an-dr/commits) is DevPanel's git client. Any repository opens in it from its card or details window, a second repository reuses the running Commits window, and each problem DevPanel reports opens in the Commits view where it is fixed.
 
 DevPanel depends on Commits, never the reverse ([ADR-003](../adr/ADR-003-commits-is-a-bundled-companion.md)). Every agreement between the two belongs to Commits and is documented there. DevPanel conforms and supplies data in Commits' formats, and Commits reads no DevPanel file. To change an agreement, change Commits' page and release Commits first, then DevPanel.
 
@@ -30,4 +30,4 @@ Every launch ends with the theme the page is showing, `--theme light` or `--them
 
 ## When the button shows
 
-"Open in Commits" sits beside every card's Open button and at the top of the drawer's Open in section. It shows while the Commits tool, id `commits`, is in the tool list and its program resolves. DevPanel checks at start and again whenever its window regains focus, so installing or removing Commits, or deleting the tool, shows or hides the button without a restart. The Commits tool stays in the "Open in…" menu either way.
+"Open in Commits" sits beside every card's Open button and at the top of the details window's Open in section. It shows while the Commits tool, id `commits`, is in the tool list and its program resolves. DevPanel checks at start and again whenever its window regains focus, so installing or removing Commits, or deleting the tool, shows or hides the button without a restart. The Commits tool stays in the "Open in…" menu either way.

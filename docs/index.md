@@ -5,7 +5,7 @@ The documentation describes intent; where it and the code disagree, the code is 
 | Page | Read it to learn |
 | --- | --- |
 | [architecture.md](architecture.md) | The layers, what may depend on what, and how an action travels from a click to `git` and back |
-| [design/domain.md](design/domain.md) | How a repository's health is judged, which fixes apply, and how install recipes are found |
+| [design/domain.md](design/domain.md) | How a repository's health is judged, which fixes apply, and how just recipes are read and run |
 | [design/protocol.md](design/protocol.md) | The JSON messages between the page and the host |
 | [design/colours.md](design/colours.md) | The palette, and when something gets colour |
 | [design/commits.md](design/commits.md) | What DevPanel gives Commits, its git client, and under which Commits contract |
