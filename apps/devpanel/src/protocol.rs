@@ -20,6 +20,10 @@ pub enum Action {
     Stash { repo: RepoId },
     Fix { repo: RepoId, fix: Fix, message: Option<String> },
     Commit { repo: RepoId, message: String },
+    /// Checks out the recorded commit of the submodule at `path` in `repo`,
+    /// cloning it first if needed (`init`, `update`), or of every submodule
+    /// (`update-all`).
+    Submodule { repo: RepoId, op: SubmoduleOp, path: Option<String> },
     Open { repo: RepoId, tool: Option<ToolId> },
     /// Opens the repository in Commits on the view its verdict calls for, in
     /// the theme the page is showing.
@@ -70,6 +74,14 @@ pub enum Action {
     Update { request: u64, action: UpdateAction },
     OpenUrl { url: String },
     Copy { text: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SubmoduleOp {
+    Init,
+    Update,
+    UpdateAll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -133,8 +145,14 @@ impl Event {
 
     /// `remote` is the URL DevPanel remembers for the repository, used for
     /// its web page when git reports no remote.
+    ///
+    /// A submodule is usually checked out detached at the recorded commit;
+    /// for one, that is its normal state, not something to fix.
     pub fn status(repo: RepoId, status: RepoStatus, remote: Option<&str>, justfile: bool) -> Self {
-        let health = Health::of(&status);
+        let health = match Health::of(&status) {
+            Health::Detached if devpanel_core::Hub::is_submodule(&repo) => Health::Clean,
+            health => health,
+        };
         let fixes = Health::fixes(&status, remote.is_some());
         let web_url = status.remote_url.as_deref().or(remote).and_then(web_url_from_remote);
         Event::Status { repo, status, health, fixes, web_url, justfile }
@@ -161,6 +179,20 @@ mod tests {
         assert!(matches!(action, Action::Update { request: 4, action: UpdateAction::Stage }));
         let action: Action = serde_json::from_str(r#"{"type":"installation","request":5,"action":"install"}"#).unwrap();
         assert!(matches!(action, Action::Installation { request: 5, action: InstallationAction::Install }));
+
+        let action: Action = serde_json::from_str(r#"{"type":"submodule","repo":"r1","op":"update-all","path":null}"#).unwrap();
+        assert!(matches!(action, Action::Submodule { op: SubmoduleOp::UpdateAll, path: None, .. }));
+    }
+
+    #[test]
+    fn a_detached_submodule_is_clean_but_a_detached_repository_is_not() {
+        let detached = RepoStatus { exists: true, is_repo: true, has_commits: true, ..RepoStatus::default() };
+        let health = |id: &str| match Event::status(RepoId(id.into()), detached.clone(), None, false) {
+            Event::Status { health, .. } => health,
+            _ => unreachable!(),
+        };
+        assert_eq!(health("r1::vendor/lib"), Health::Clean);
+        assert_eq!(health("r1"), Health::Detached);
     }
 
     /// The page's labels, in the page's order, are Commits' repository-health

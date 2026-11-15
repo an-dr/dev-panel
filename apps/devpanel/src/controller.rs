@@ -17,7 +17,7 @@ use devpanel_core::ports::{Output, WatchHandle};
 use devpanel_core::{Hub, HubError, HubResult};
 
 use crate::jobs::{self, Pool};
-use crate::protocol::{Action, Event, InstallationAction, JobState};
+use crate::protocol::{Action, Event, InstallationAction, JobState, SubmoduleOp};
 
 /// Concurrent `git status` reads.
 const STATUS_WORKERS: usize = 4;
@@ -168,6 +168,11 @@ impl Controller {
                 self.git_job(repo, "Commit", move |hub, id, out| hub.commit_all(id, &message, out))
             }
             Action::Fix { repo, fix, message } => self.fix(repo, fix, message),
+            Action::Submodule { repo, op, path } => {
+                let path = if op == SubmoduleOp::UpdateAll { None } else { path };
+                let verb = if op == SubmoduleOp::Init { "Clone submodule" } else { "Update submodules" };
+                self.git_job(repo, verb, move |hub, id, out| hub.update_submodules(id, path.as_deref(), out));
+            }
             Action::Open { repo, tool } => {
                 let result = self.hub.open_in(&repo, tool.as_ref());
                 self.report(result);
@@ -304,7 +309,7 @@ impl Controller {
             Ok(repos) => {
                 let _ = events.send(workspace_event(&hub));
                 for repo in &repos {
-                    let _ = events.send(status_event(&hub, &repo.id));
+                    send_statuses(&events, &hub, &repo.id);
                 }
                 let _ = events.send(Event::Select { repo: repos[0].id.clone() });
             }
@@ -433,13 +438,11 @@ impl Controller {
             };
             let _ = events.send(Event::Job { job, repo: repo.clone(), title, state, error });
             match (afterwards, &repo) {
-                (Afterwards::Status, Some(repo)) => {
-                    let _ = events.send(status_event(&hub, repo));
-                }
+                (Afterwards::Status, Some(repo)) => send_statuses(&events, &hub, &status_root(repo)),
                 _ => {
                     let _ = events.send(workspace_event(&hub));
                     for repo in hub.workspace().repos {
-                        let _ = events.send(status_event(&hub, &repo.id));
+                        send_statuses(&events, &hub, &repo.id);
                     }
                 }
             }
@@ -458,9 +461,11 @@ impl Controller {
         let events = self.events.clone();
         let refreshing = Arc::clone(&self.refreshing);
         self.status_pool.submit(move || {
-            let event = status_event(&hub, &repo);
+            let statuses = status_events(&hub, &repo);
             refreshing.lock().unwrap().remove(&repo);
-            let _ = events.send(event);
+            for event in statuses {
+                let _ = events.send(event);
+            }
         });
     }
 
@@ -500,14 +505,40 @@ impl Controller {
     }
 }
 
-fn status_event(hub: &Hub, repo: &RepoId) -> Event {
-    match hub.status(repo) {
-        Ok(status) => {
-            let remote = hub.repo(repo).ok().and_then(|r| r.remote);
-            Event::status(repo.clone(), status, remote.as_deref(), hub.has_justfile(repo))
-        }
-        Err(error) => Event::error(error.to_string()),
+fn send_statuses(events: &Sender<Event>, hub: &Hub, repo: &RepoId) {
+    for event in status_events(hub, repo) {
+        let _ = events.send(event);
     }
+}
+
+/// The repository's status, preceded by the status of each of its
+/// submodules, nested ones included, so the page knows a submodule before
+/// its parent lists it. Each submodule entry in a parent carries its own
+/// branch and change count, read from the submodule's status.
+fn status_events(hub: &Hub, repo: &RepoId) -> Vec<Event> {
+    let mut status = match hub.status(repo) {
+        Ok(status) => status,
+        Err(error) => return vec![Event::error(error.to_string())],
+    };
+    let mut events = Vec::new();
+    for sub in &mut status.submodules {
+        let id = Hub::submodule_id(repo, &sub.path);
+        let mut nested = status_events(hub, &id);
+        if let Some(Event::Status { status: own, .. }) = nested.last() {
+            sub.branch = own.branch.clone();
+            sub.changes = own.changes();
+        }
+        events.append(&mut nested);
+    }
+    let remote = hub.repo(repo).ok().and_then(|r| r.remote);
+    events.push(Event::status(repo.clone(), status, remote.as_deref(), hub.has_justfile(repo)));
+    events
+}
+
+/// The repository whose status a job on `repo` can change: a job inside a
+/// submodule changes its parents' view of it too, up to the tracked one.
+fn status_root(repo: &RepoId) -> RepoId {
+    RepoId(repo.0.split("::").next().unwrap_or_default().to_string())
 }
 
 fn workspace_event(hub: &Hub) -> Event {

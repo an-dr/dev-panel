@@ -33,6 +33,10 @@ pub trait Git: Send + Sync {
     fn push(&self, path: &Path, set_upstream: bool, out: &dyn Output) -> HubResult<()>;
     fn commit_all(&self, path: &Path, message: &str, out: &dyn Output) -> HubResult<()>;
     fn stash(&self, path: &Path, out: &dyn Output) -> HubResult<()>;
+    /// Checks out the recorded commit of the submodule at `submodule`
+    /// (relative to `path`), cloning it first when needed; every submodule,
+    /// nested ones included, when `None`.
+    fn submodule_update(&self, path: &Path, submodule: Option<&str>, out: &dyn Output) -> HubResult<()>;
 }
 
 /// Runs a command line through the platform shell.

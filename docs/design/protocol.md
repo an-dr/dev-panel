@@ -25,6 +25,7 @@ sequenceDiagram
 | `fetch` | `repo?` | Fetches one repository, or every one with a remote |
 | `pull` · `push` · `sync` · `stash` | `repo` | Runs that git operation as a job |
 | `commit` | `repo`, `message` | Stages everything and commits |
+| `submodule` | `repo`, `op`, `path?` | Checks out the recorded commit of the submodule at `path`, cloning it first if needed (`init`, `update`), or of every submodule, nested ones included (`update-all`) |
 | `fix` | `repo`, `fix`, `message?` | Runs one suggested fix (`reclone`, `pull`, `sync`, `push`, `publish`, `commit-all`, `stash`, `open-in-tool`) |
 | `open` | `repo`, `tool?` | Opens the repository in a tool, the default when absent |
 | `open-in-commits` | `repo`, `theme` | Opens the repository in Commits on the view its verdict calls for, in `light` or `dark`: the theme the page shows, with "follow the system" already resolved ([commits.md](commits.md)) |
@@ -66,3 +67,7 @@ sequenceDiagram
 | `select` | `repo` | Select this repository and open its details window. Sent after `devpanel <path>` opened a folder, at startup or from a later launch |
 
 A job's output arrives between its `running` and final `job` events. A job on a repository is always followed by that repository's `status`; a job that changes what is tracked is followed by `workspace` and every `status`.
+
+### Submodules
+
+A submodule is addressed like a repository, by the id `<parent id>::<path>`, which nests (`r1::lib::vendor/x`); every repository action takes it. It is not in the workspace, so the actions that change the workspace (`favorite`, `edit`, `remove`) refuse it. A repository's `status` lists its direct submodules in `status.submodules`, each with `path`, `recorded`, `checked_out` (when moved), `state` (`clean`, `moved`, `modified`, `uninitialized`, `conflict`), `branch` and `changes`. The status of each submodule, nested ones included, is sent before its parent's. A job inside a submodule is followed by the statuses of its top-level repository.

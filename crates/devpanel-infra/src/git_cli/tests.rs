@@ -3,7 +3,7 @@
 
 use std::process::Command;
 
-use devpanel_core::domain::{Health, Operation};
+use devpanel_core::domain::{Health, Operation, SubmoduleState};
 use devpanel_core::ports::Silent;
 
 use super::*;
@@ -130,4 +130,67 @@ fn failing_command_reports_git_output() {
     let root = tempfile::tempdir().unwrap();
     let error = GitCli.clone_repo("/definitely/not/here", &root.path().join("x"), &Silent).unwrap_err();
     assert!(error.to_string().contains("not") || error.to_string().contains("exist"), "{error}");
+}
+
+/// A repository with one commit, to add as a submodule.
+fn library(root: &Path, name: &str) -> PathBuf {
+    let lib = root.join(name);
+    git(root, &["init", "-b", "main", lib.to_str().unwrap()]);
+    std::fs::write(lib.join("lib.txt"), "lib").unwrap();
+    git(&lib, &["add", "."]);
+    git(&lib, &["commit", "-m", "lib"]);
+    lib
+}
+
+fn add_submodule(parent: &Path, url: &Path, path: &str) {
+    git(parent, &["-c", "protocol.file.allow=always", "submodule", "add", url.to_str().unwrap(), path]);
+    git(parent, &["commit", "-m", &format!("add {path}")]);
+}
+
+#[test]
+fn submodules_report_their_state_and_update_back_to_the_recorded_commit() {
+    let (root, _server, work) = upstream_and_clone();
+    let lib = library(root.path(), "lib");
+    add_submodule(&work, &lib, "vendor/lib");
+
+    let status = GitCli.status(&work);
+    assert_eq!(status.submodules.len(), 1);
+    let sub = &status.submodules[0];
+    assert_eq!((sub.path.as_str(), sub.state), ("vendor/lib", SubmoduleState::Clean));
+
+    // Changes inside, then a commit inside: modified, then moved.
+    let inside = work.join("vendor/lib");
+    std::fs::write(inside.join("lib.txt"), "changed").unwrap();
+    assert_eq!(GitCli.status(&work).submodules[0].state, SubmoduleState::Modified);
+    git(&inside, &["commit", "-am", "inside"]);
+    let moved = GitCli.status(&work).submodules[0].clone();
+    assert_eq!(moved.state, SubmoduleState::Moved);
+    assert_ne!(moved.checked_out.as_deref(), Some(moved.recorded.as_str()));
+
+    GitCli.submodule_update(&work, Some("vendor/lib"), &Silent).unwrap();
+    assert_eq!(GitCli.status(&work).submodules[0].state, SubmoduleState::Clean);
+    // The submodule is a repository of its own, detached as submodules are.
+    let own = GitCli.status(&inside);
+    assert!(own.is_repo);
+    assert_eq!(own.branch, None);
+}
+
+#[test]
+fn a_fresh_clone_lists_uninitialized_submodules_until_updated() {
+    let (root, _server, work) = upstream_and_clone();
+    let lib = library(root.path(), "lib");
+    let inner = library(root.path(), "inner");
+    add_submodule(&lib, &inner, "inner");
+    add_submodule(&work, &lib, "lib");
+    let copy = root.path().join("copy");
+    git(root.path(), &["clone", work.to_str().unwrap(), copy.to_str().unwrap()]);
+
+    assert_eq!(GitCli.status(&copy).submodules[0].state, SubmoduleState::Uninitialized);
+    std::env::set_var("GIT_CONFIG_COUNT", "1");
+    std::env::set_var("GIT_CONFIG_KEY_0", "protocol.file.allow");
+    std::env::set_var("GIT_CONFIG_VALUE_0", "always");
+    GitCli.submodule_update(&copy, None, &Silent).unwrap();
+    assert_eq!(GitCli.status(&copy).submodules[0].state, SubmoduleState::Clean);
+    // The nested submodule was cloned too, and reports in its own parent.
+    assert_eq!(GitCli.status(&copy.join("lib")).submodules[0].state, SubmoduleState::Clean);
 }

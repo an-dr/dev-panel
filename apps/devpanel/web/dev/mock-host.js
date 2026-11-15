@@ -23,6 +23,8 @@
       { id: 'r4', name: 'agents', path: '/home/me/Code/agents', remote: 'https://github.com/an-dr/agents.git', group: null, favorite: false },
       { id: 'r5', name: 'microlog', path: '/home/me/Code/microlog', remote: 'https://github.com/an-dr/microlog.git', group: 'libs', favorite: false },
       { id: 'r6', name: 'artificial-will-game-v2', path: '/home/me/Code/games/awg2', remote: 'https://github.com/an-dr/artificial-will-game-v2.git', group: 'games', favorite: false },
+      { id: 'r8', name: 'dev-suite', path: '/home/me/Code/dev-suite', remote: 'https://github.com/an-dr/dev-suite.git', group: null, favorite: true },
+      { id: 'r9', name: 'dev-panel', path: '/home/me/Code/dev-suite/dev-panel', remote: 'https://github.com/an-dr/dev-panel.git', group: 'apps', favorite: false },
       { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, favorite: false },
     ],
     tools,
@@ -37,6 +39,18 @@
     r4: { ...base, ahead: 2, last_commit: commit('policy: exempt fully-specified releases', 700) },
     r5: { ...base, ahead: 1, behind: 4, last_commit: commit('fix: ring buffer wrap', 50) },
     r6: { ...base, branch: 'feature/levels', upstream: null, last_commit: commit('wip: level loader', 5), stashes: 2 },
+    r8: { ...base, unstaged: 2, files: [{ code: '.M', path: 'dev-panel' }, { code: '.M', path: 'commits' }], last_commit: commit('chore: move agents to the latest main', 3), submodules: [
+      { path: 'agents', recorded: '72043ee1a0', state: 'clean', branch: 'main' },
+      { path: 'dev-panel', recorded: 'defb2aa4c1', checked_out: '9a1b2c3d4e', state: 'moved', branch: 'main' },
+      { path: 'commits', recorded: '1c30330aa2', state: 'modified', branch: 'feature/askpass', changes: 3, submodules: [
+        { path: 'vendor/bones', recorded: '5d6e7f8a9b', checked_out: '0a1b2c3d4e', state: 'moved', branch: null, submodules: [
+          { path: 'third_party/sdl', recorded: 'a1b2c3d4e5', state: 'clean', branch: null },
+        ] },
+      ] },
+      { path: 'vscode-extensions', recorded: 'eef73bc901', state: 'clean', branch: null },
+      { path: 'bones', recorded: '316e766ab0', state: 'uninitialized' },
+    ] },
+    r9: { ...base, last_commit: commit('feat: submodules', 1), submodules: [{ path: 'vendor/bones', recorded: '1c30330aa2', state: 'clean', branch: null }] },
     r7: { ...base, exists: false, is_repo: false, branch: null, upstream: null, has_commits: false, remote_url: null, last_commit: null },
   };
   const ORDER = ['missing', 'not-a-repo', 'conflicted', 'in-progress', 'diverged', 'behind', 'dirty', 'ahead', 'unpublished', 'detached', 'clean'];
@@ -84,10 +98,20 @@
     }, 250 * (lines.length + 1));
   }
 
-  const name = (id) => workspace.repos.find((r) => r.id === id).name;
+  const name = (id) => workspace.repos.find((r) => r.id === id)?.name || id.split('::').pop();
+  // Each submodule also gets its own status, under "<parent>::<path>".
+  const addSubStatuses = (id, list) => (list || []).forEach((m) => {
+    const sid = `${id}::${m.path}`;
+    statuses[sid] = m.state === 'uninitialized'
+      ? { ...base, exists: true, is_repo: false, branch: null, upstream: null, has_commits: false, remote_url: null, last_commit: null }
+      : { ...base, branch: m.branch, upstream: m.branch ? `origin/${m.branch}` : null, unstaged: m.changes || 0, files: Array.from({ length: m.changes || 0 }, (_, i) => ({ code: '.M', path: `src/file${i + 1}.rs` })), remote_url: `https://github.com/an-dr/${m.path.split('/').pop()}.git`, last_commit: commit(`chore: work in ${m.path}`, 20), submodules: m.submodules };
+    addSubStatuses(sid, m.submodules);
+  });
+  for (const [id, st] of Object.entries({ ...statuses })) addSubStatuses(id, st.submodules);
+  const subStatusEvents = () => Object.keys(statuses).filter((id) => id.includes('::')).map(statusEvent);
   const handlers = {
     // window.devpanelSelect plays `devpanel <path>`: a select after the state.
-    ready: () => emit([workspaceEvent(), ...workspace.repos.map((r) => statusEvent(r.id)), ...(window.devpanelSelect ? [{ type: 'select', repo: window.devpanelSelect }] : [])]),
+    ready: () => emit([workspaceEvent(), ...workspace.repos.map((r) => statusEvent(r.id)), ...subStatusEvents(), ...(window.devpanelSelect ? [{ type: 'select', repo: window.devpanelSelect }] : [])]),
     refresh: ({ repo }) => emit((repo ? [repo] : workspace.repos.map((r) => r.id)).map(statusEvent)),
     fetch: ({ repo }) => (repo ? [repo] : workspace.repos.filter((r) => statuses[r.id].remote_url).map((r) => r.id))
       .forEach((id) => runJob(id, `Fetch ${name(id)}`, ['$ git fetch --all --prune --progress', 'remote: Counting objects: 100% (12/12)', 'From github.com:an-dr/x'])),
@@ -109,6 +133,9 @@
       statuses[id] = { ...base, last_commit: commit('Initial commit', 1) };
       emit([{ type: 'toast', level: 'info', message: `Added ${path}` }, workspaceEvent(), statusEvent(id)]);
     },
+    submodule: ({ repo, op, path }) => runJob(repo, `Submodule ${op} ${path || ''} in ${name(repo)}`,
+      [op === 'update-all' ? '$ git submodule update --init --recursive' : `$ git submodule update --init -- ${path}`, 'Submodule path checked out'],
+      () => statuses[repo].submodules.forEach((m) => { if ((op === 'update-all' || m.path === path) && (m.state === 'moved' || m.state === 'uninitialized')) { m.state = 'clean'; m.checked_out = null; } })),
     scan: () => runJob(null, 'Scan ~/Code', ['0 new repositories'], () => emit([workspaceEvent()])),
     clone: ({ url }) => runJob(null, `Clone ${url.split('/').pop().replace(/\.git$/, '')}`, ['$ git clone --progress ' + url, 'Cloning into …', 'Receiving objects:  45%', 'Receiving objects: 100% (812/812)', 'Resolving deltas: 100%'], () => handlers['add-existing']({ path: `~/Code/${url.split('/').pop().replace(/\.git$/, '')}` })),
     remove: ({ repo }) => { workspace.repos = workspace.repos.filter((r) => r.id !== repo); emit([workspaceEvent()]); },

@@ -58,6 +58,9 @@ impl Git for FakeGit {
     fn stash(&self, path: &Path, _: &dyn Output) -> HubResult<()> {
         self.record(format!("stash {}", path.display()))
     }
+    fn submodule_update(&self, path: &Path, submodule: Option<&str>, _: &dyn Output) -> HubResult<()> {
+        self.record(format!("submodule-update {} {}", path.display(), submodule.unwrap_or("*")))
+    }
 }
 
 #[derive(Default)]
@@ -683,4 +686,49 @@ fn hidden_recipes_are_kept_sorted_and_can_come_back() {
     f.hub.set_recipe_hidden(&id, "dist", true).unwrap();
     assert_eq!(f.hub.set_recipe_hidden(&id, "lint", true).unwrap().hidden_recipes, ["dist", "lint"]);
     assert_eq!(f.hub.set_recipe_hidden(&id, "dist", false).unwrap().hidden_recipes, ["lint"]);
+}
+
+#[test]
+fn a_submodule_id_resolves_under_its_parent_and_nests() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/suite", None));
+    let parent = f.hub.add_existing(Path::new("/home/u/suite")).unwrap();
+    let sub = Hub::submodule_id(&parent.id, "tools/lib");
+    let nested = Hub::submodule_id(&sub, "vendor/x");
+    assert_eq!(f.hub.repo(&sub).unwrap().path, PathBuf::from("/home/u/suite/tools/lib"));
+    assert_eq!(f.hub.repo(&nested).unwrap().path, PathBuf::from("/home/u/suite/tools/lib/vendor/x"));
+    assert_eq!(f.hub.repo(&nested).unwrap().name, "x");
+    f.hub.pull(&nested, &Silent).unwrap();
+    let calls = f.git.calls();
+    let pulled = calls[0].strip_prefix("pull rebase=false ").unwrap();
+    assert_eq!(PathBuf::from(pulled), PathBuf::from("/home/u/suite/tools/lib/vendor/x"));
+}
+
+#[test]
+fn a_submodule_path_cannot_leave_its_parent() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/suite", None));
+    let parent = f.hub.add_existing(Path::new("/home/u/suite")).unwrap();
+    for path in ["../other", "/etc", ""] {
+        assert!(f.hub.repo(&Hub::submodule_id(&parent.id, path)).is_err(), "{path}");
+        assert!(f.hub.update_submodules(&parent.id, Some(path), &Silent).is_err(), "{path}");
+    }
+    assert!(f.git.calls().is_empty());
+}
+
+#[test]
+fn a_submodule_is_not_a_stored_repository() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/suite", None));
+    let parent = f.hub.add_existing(Path::new("/home/u/suite")).unwrap();
+    let sub = Hub::submodule_id(&parent.id, "lib");
+    assert!(f.hub.set_favorite(&sub, true).is_err());
+    assert!(f.hub.remove(&sub).is_err());
+    assert_eq!(f.hub.workspace().repos.len(), 1);
+}
+
+#[test]
+fn updating_submodules_runs_in_the_parent() {
+    let f = fixture(FakeGit::default().with_repo("/home/u/suite", None));
+    let parent = f.hub.add_existing(Path::new("/home/u/suite")).unwrap();
+    f.hub.update_submodules(&parent.id, Some("lib"), &Silent).unwrap();
+    f.hub.update_submodules(&parent.id, None, &Silent).unwrap();
+    assert_eq!(f.git.calls(), vec!["submodule-update /home/u/suite lib".to_string(), "submodule-update /home/u/suite *".to_string()]);
 }

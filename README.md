@@ -45,9 +45,10 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 ## Using it
 
 - **Add repository** (Ctrl+N) — clone, add a folder, or scan a folder.
-- **Overview** shows totals, your favorites, and every repository that needs attention; its suggested fixes sit in the details window.
+- **Repositories** is the main page. **Needs attention** shows the totals and every repository that needs attention; its suggested fixes sit in the details window.
+- **Submodules** of a repository open from the button on its card, nested ones included, each in the same details window with its parent shown; it says whether a submodule sits at the commit its parent records, and resets or clones it there.
 - **Names** appear in pixel, cyber, tech and chip display fonts, picked per repository; Edit… changes the font, weight and italic.
-- **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and get their own section.
+- **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and have their own Favorites page.
 - Click a card to open its details in a window over the page: suggested fixes, changed files, every git action, tools, just recipes, recent output.
 - **Drag** a card onto Favorites or a group in the sidebar to put it there, and drag sidebar items to reorder them. Settings → **Start on** picks the page DevPanel opens on: the one you were on, or any page or group.
 - **Activity** keeps the output of everything DevPanel ran.

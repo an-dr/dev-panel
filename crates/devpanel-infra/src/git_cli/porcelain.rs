@@ -1,7 +1,7 @@
 //! Parsing git's machine-readable output. Kept apart from process handling so
 //! it can be tested against literal text.
 
-use devpanel_core::domain::{CommitSummary, FileChange, RepoStatus};
+use devpanel_core::domain::{CommitSummary, FileChange, RepoStatus, Submodule, SubmoduleState};
 
 /// Fills branch, tracking and change counts from
 /// `git status --porcelain=v2 --branch --show-stash`.
@@ -74,6 +74,53 @@ fn apply_header(header: &str, status: &mut RepoStatus) {
     }
 }
 
+/// The submodules from `git submodule status` (checked out commit and
+/// state), `git ls-files --stage` (the recorded commit) and the porcelain v2
+/// status (changes inside, from an entry's `S.M.`/`S..U` field).
+pub fn submodules(submodule_status: &str, stage: &str, porcelain: &str) -> Vec<Submodule> {
+    let recorded = |path: &str| {
+        stage.lines().find_map(|line| {
+            let (meta, file) = line.split_once('\t')?;
+            let mut fields = meta.split(' ');
+            (fields.next() == Some("160000") && file == path).then(|| fields.next().unwrap_or_default().to_string())
+        })
+    };
+    let dirty = |path: &str| {
+        porcelain.lines().any(|line| {
+            let kind = line.split(' ').next().unwrap_or_default();
+            let sub = line.split(' ').nth(2).unwrap_or_default();
+            matches!(kind, "1" | "2")
+                && sub.starts_with('S')
+                && (sub[1..].contains('M') || sub[1..].contains('U'))
+                && changed_path(kind, line).is_some_and(|p| p == path || p.starts_with(&format!("{path} <- ")))
+        })
+    };
+    submodule_status
+        .lines()
+        .filter_map(|line| {
+            let flag = line.chars().next()?;
+            let mut rest = line[flag.len_utf8()..].splitn(2, ' ');
+            let hash = rest.next()?.to_string();
+            let path = rest.next()?;
+            // A described commit follows the path as ` (v1.2-3-gabc)`.
+            let path = match path.rfind(" (") {
+                Some(at) if path.ends_with(')') => &path[..at],
+                _ => path,
+            }
+            .to_string();
+            let recorded = recorded(&path).unwrap_or_else(|| hash.clone());
+            let (state, checked_out) = match flag {
+                '-' => (SubmoduleState::Uninitialized, None),
+                'U' => (SubmoduleState::Conflict, None),
+                '+' => (SubmoduleState::Moved, Some(hash)),
+                _ if dirty(&path) => (SubmoduleState::Modified, None),
+                _ => (SubmoduleState::Clean, None),
+            };
+            Some(Submodule { path, recorded, checked_out, state, branch: None, changes: 0 })
+        })
+        .collect()
+}
+
 /// Reads `git config --get-regexp ^remote\..*\.url$` output and returns
 /// `origin` if present, else the first remote, as `(name, url)`.
 pub fn pick_remote(config: &str) -> Option<(String, String)> {
@@ -103,6 +150,31 @@ pub fn parse_commit(line: &str) -> Option<CommitSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn submodules_join_status_stage_and_changes() {
+        let status = " 1111111 lib (v1.0)\n+2222222 moved\n-3333333 fresh\nU0000000 torn\n 4444444 dirty\n";
+        let stage = "160000 1111111 0\tlib\n160000 9999999 0\tmoved\n100644 abc 0\tREADME.md\n";
+        let porcelain = "1 .M S.M. 160000 160000 160000 4444444 4444444 dirty\n";
+        let found = submodules(status, stage, porcelain);
+        let states: Vec<_> = found.iter().map(|s| (s.path.as_str(), s.state)).collect();
+        assert_eq!(states, vec![
+            ("lib", SubmoduleState::Clean),
+            ("moved", SubmoduleState::Moved),
+            ("fresh", SubmoduleState::Uninitialized),
+            ("torn", SubmoduleState::Conflict),
+            ("dirty", SubmoduleState::Modified),
+        ]);
+        assert_eq!(found[1].recorded, "9999999");
+        assert_eq!(found[1].checked_out.as_deref(), Some("2222222"));
+        assert_eq!(found[0].checked_out, None);
+    }
+
+    #[test]
+    fn a_new_commit_inside_a_submodule_is_not_a_change_inside_it() {
+        let porcelain = "1 .M SC.. 160000 160000 160000 1111111 1111111 lib\n";
+        assert_eq!(submodules(" 1111111 lib\n", "", porcelain)[0].state, SubmoduleState::Clean);
+    }
 
     const STATUS: &str = "\
 # branch.oid 1234abcd

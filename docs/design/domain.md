@@ -54,6 +54,8 @@ DevPanel keeps its own implementation, `Health::of`, and proves it matches by ru
 | `unpublished` | Unpublished | advisory |
 | `clean` | Clean | normal |
 
+A submodule takes the same verdicts, with one exception: detached HEAD is how a submodule normally sits at its recorded commit, so a detached submodule is clean. Whether it is at that commit is its submodule state, shown beside the verdict: `moved` when another commit is checked out, `modified` with changes inside, `uninitialized` before it is cloned, `conflict` when the recorded commit is in a merge conflict.
+
 ## Fixes
 
 The verdict picks the badge; the fixes are every action that would improve the repository, most useful first. A repository can be behind *and* dirty, and it is offered both.

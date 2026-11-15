@@ -20,6 +20,41 @@ pub struct FileChange {
     pub path: String,
 }
 
+/// Where a submodule stands against the commit its parent records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SubmoduleState {
+    /// Checked out at the recorded commit, with no changes inside.
+    Clean,
+    /// Checked out at another commit than the recorded one.
+    Moved,
+    /// At the recorded commit, with uncommitted changes inside.
+    Modified,
+    /// Recorded but never cloned (`git submodule update --init` clones it).
+    Uninitialized,
+    /// The recorded commit is in a merge conflict.
+    Conflict,
+}
+
+/// One submodule of a repository, as its parent sees it. A nested
+/// submodule appears in its own parent's status, not here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Submodule {
+    /// Relative to the parent's working tree, `/`-separated.
+    pub path: String,
+    /// The commit the parent records for it.
+    pub recorded: String,
+    /// The checked out commit, when it differs from `recorded`.
+    pub checked_out: Option<String>,
+    pub state: SubmoduleState,
+    /// The submodule's own branch; `None` when detached, as submodules usually are.
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Uncommitted changes inside it.
+    #[serde(default)]
+    pub changes: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CommitSummary {
     pub hash: String,
@@ -57,6 +92,9 @@ pub struct RepoStatus {
     pub has_commits: bool,
     /// URL of `origin`, or of the first remote when there is no `origin`.
     pub remote_url: Option<String>,
+    /// The repository's direct submodules, in `.gitmodules` order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub submodules: Vec<Submodule>,
 }
 
 impl RepoStatus {

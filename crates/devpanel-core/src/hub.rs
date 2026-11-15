@@ -69,8 +69,37 @@ impl Hub {
         self.revision.load(Ordering::Relaxed)
     }
 
+    /// A tracked repository, or a submodule under one: the id
+    /// `<parent id>::<path>` names the submodule at `path` in the parent's
+    /// working tree, and nests (`r1::lib::vendor/x`). A submodule is not
+    /// stored, so the workspace changes (favourite, edit, remove) do not
+    /// find it.
     pub fn repo(&self, id: &RepoId) -> HubResult<Repo> {
+        if let Some((parent, path)) = id.0.rsplit_once(SUBMODULE_SEPARATOR) {
+            return self.submodule_repo(id, &self.repo(&RepoId(parent.to_string()))?, path);
+        }
         self.lock().repos.iter().find(|r| &r.id == id).cloned().ok_or_else(|| not_found(id))
+    }
+
+    fn submodule_repo(&self, id: &RepoId, parent: &Repo, path: &str) -> HubResult<Repo> {
+        let relative = Path::new(path);
+        let inside = !path.is_empty()
+            && relative.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+        if !inside {
+            return Err(not_found(id));
+        }
+        let name = relative.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        Ok(Repo { id: id.clone(), name, path: parent.path.join(relative), ..Repo::default() })
+    }
+
+    /// Whether `id` names a submodule rather than a tracked repository.
+    pub fn is_submodule(id: &RepoId) -> bool {
+        id.0.contains(SUBMODULE_SEPARATOR)
+    }
+
+    /// The id of the submodule at `path` in the repository `parent`.
+    pub fn submodule_id(parent: &RepoId, path: &str) -> RepoId {
+        RepoId(format!("{}{SUBMODULE_SEPARATOR}{path}", parent.0))
     }
 
     // ---- tracking -------------------------------------------------------
@@ -373,6 +402,16 @@ impl Hub {
         self.ports.git.push(&path, false, out)
     }
 
+    /// Checks out the recorded commit of one submodule of `id`, cloning it
+    /// when needed, or of every submodule, nested ones included.
+    pub fn update_submodules(&self, id: &RepoId, submodule: Option<&str>, out: &dyn Output) -> HubResult<()> {
+        let repo = self.repo(id)?;
+        if let Some(path) = submodule {
+            self.submodule_repo(&Self::submodule_id(id, path), &repo, path)?;
+        }
+        self.ports.git.submodule_update(&repo.path, submodule, out)
+    }
+
     pub fn commit_all(&self, id: &RepoId, message: &str, out: &dyn Output) -> HubResult<()> {
         let message = message.trim();
         if message.is_empty() {
@@ -569,6 +608,10 @@ impl Hub {
         })
     }
 }
+
+/// Joins a parent's id and a submodule path into the submodule's id. Not a
+/// character a generated id or a git path contains.
+const SUBMODULE_SEPARATOR: &str = "::";
 
 fn next_id(repos: &[Repo]) -> RepoId {
     let max = repos.iter().filter_map(|r| r.id.0.strip_prefix('r')?.parse::<u64>().ok()).max().unwrap_or(0);

@@ -85,11 +85,19 @@ impl Git for GitCli {
         }
 
         let mut status = RepoStatus { exists: true, is_repo: true, ..RepoStatus::default() };
-        if let Some(text) = Self::query(path, &["status", "--porcelain=v2", "--branch", "--show-stash"]) {
-            porcelain::apply_status(&text, &mut status);
+        let porcelain_text = Self::query(path, &["status", "--porcelain=v2", "--branch", "--show-stash"]).unwrap_or_default();
+        if !porcelain_text.is_empty() {
+            porcelain::apply_status(&porcelain_text, &mut status);
         }
         status.operation = Self::operation(Path::new(git_dir));
         status.remote_url = Self::remote(path).map(|(_, url)| url);
+        if path.join(".gitmodules").is_file() {
+            status.submodules = porcelain::submodules(
+                &Self::query(path, &["submodule", "status"]).unwrap_or_default(),
+                &Self::query(path, &["ls-files", "--stage"]).unwrap_or_default(),
+                &porcelain_text,
+            );
+        }
         if status.has_commits {
             status.last_commit = Self::query(path, &["log", "-1", "--format=%h%x1f%s%x1f%an%x1f%ct"])
                 .and_then(|line| porcelain::parse_commit(&line));
@@ -130,6 +138,13 @@ impl Git for GitCli {
 
     fn stash(&self, path: &Path, out: &dyn Output) -> HubResult<()> {
         Self::run(path, &["stash", "push", "--include-untracked"], out)
+    }
+
+    fn submodule_update(&self, path: &Path, submodule: Option<&str>, out: &dyn Output) -> HubResult<()> {
+        match submodule {
+            Some(one) => Self::run(path, &["submodule", "update", "--init", "--progress", "--", one], out),
+            None => Self::run(path, &["submodule", "update", "--init", "--recursive", "--progress"], out),
+        }
     }
 }
 

@@ -84,7 +84,7 @@ const state = {
   statuses: new Map(),
   /** job id → { job, repo, title, state, error, lines, started, finished } */
   jobs: new Map(),
-  view: load('view', 'overview'),
+  view: load('view', 'repos'),
   layout: load('layout', 'grid'),
   filter: 'all',
   group: null,
@@ -195,7 +195,19 @@ function onJob(message) {
   }
 }
 
-const repoById = (id) => state.workspace.repos.find((repo) => repo.id === id);
+const repoById = (id) => state.workspace.repos.find((repo) => repo.id === id) || submoduleRepo(id);
+// A submodule is shown like a repository, under the id "<parent id>::<path>",
+// built from its parent's status. It is not in the workspace unless added.
+function submoduleRepo(id) {
+  const cut = id ? id.lastIndexOf('::') : -1;
+  if (cut < 0) return null;
+  const parent = repoById(id.slice(0, cut));
+  const path = id.slice(cut + 2);
+  const sub = parent && (state.statuses.get(parent.id)?.status?.submodules || []).find((m) => m.path === path);
+  if (!sub) return null;
+  return { id, name: path.split('/').pop(), path: `${parent.path.replace(/[\\/]+$/, '')}/${path}`, remote: null, group: null, favorite: false, parent, submodule: sub };
+}
+const subId = (repo, m) => `${repo.id}::${m.path}`;
 const toolById = (id) => state.workspace.tools.find((tool) => tool.id === id);
 // Tools offered for opening a repository: enabled in Settings and installed.
 const usableTools = () => state.workspace.tools.filter((tool) => tool.enabled !== false && state.available?.has(tool.id));
@@ -430,7 +442,9 @@ function renderSidebar() {
 // ---- pages and the sidebar's order ---------------------------------------
 
 /** The sidebar's own pages: key, icon, label, in their default order. */
-const MAIN_PAGES = [['overview', 'home', 'Overview'], ['favorites', 'star', 'Favorites'], ['repos', 'repo', 'Repositories'], ['activity', 'activity', 'Activity']];
+// Repositories is the main page. The page keyed 'overview' is "Needs attention";
+// the key stays so saved start pages and sidebar orders keep working.
+const MAIN_PAGES = [['repos', 'repo', 'Repositories'], ['favorites', 'star', 'Favorites'], ['overview', 'alert', 'Needs attention'], ['activity', 'activity', 'Activity']];
 
 /** The page on screen as a key: a view, `favorites`, or `group:<name>`. */
 function pageKey() {
@@ -439,9 +453,9 @@ function pageKey() {
   return state.view;
 }
 
-/** Shows the page `key` names; a group that no longer exists falls back to the overview. */
+/** Shows the page `key` names; a group that no longer exists falls back to Repositories. */
 function goTo(key) {
-  Object.assign(state, { view: 'overview', group: null, favoritesOnly: false, filter: 'all' });
+  Object.assign(state, { view: 'repos', group: null, favoritesOnly: false, filter: 'all' });
   if (key === 'favorites') Object.assign(state, { view: 'repos', favoritesOnly: true });
   else if (key.startsWith('group:') && groups().some(([g]) => g && `group:${g}` === key)) Object.assign(state, { view: 'repos', group: key.slice('group:'.length) });
   else if (['overview', 'repos', 'activity', 'settings', 'accounts', 'git-config'].includes(key)) state.view = key;
@@ -614,7 +628,7 @@ document.addEventListener('click', (event) => {
 function renderTitle() {
   const c = counts();
   const titles = {
-    overview: ['Overview', state.ready ? `${plural(c.total, 'repository', 'repositories')} · ${c.attention ? `${c.attention} need attention` : 'all clean'}` : ''],
+    overview: ['Needs attention', state.ready ? `${plural(c.total, 'repository', 'repositories')} · ${c.attention ? `${c.attention} need attention` : 'all clean'}` : ''],
     repos: [state.favoritesOnly ? 'Favorites' : state.group ?? 'Repositories', plural(visibleRepos().length, 'repository', 'repositories')],
     activity: ['Activity', c.running ? `${plural(c.running, 'job')} running` : 'Output of everything DevPanel ran'],
     settings: ['Settings', 'Tools, folders and behaviour'],
@@ -688,12 +702,10 @@ const VIEWS = {
         <span class="stat-icon">${icon(iconName)}</span>
         <span class="value">${value}</span><span class="label">${label}</span>
       </div>`;
-    const favorites = sortRepos(state.workspace.repos.filter((r) => r.favorite), 'attention');
     const attention = sortRepos(state.workspace.repos.filter((r) => {
       const e = state.statuses.get(r.id);
       return e && e.health !== 'clean';
     }), 'attention');
-    const recent = sortRepos(state.workspace.repos, 'recent').slice(0, 6);
     return `
       <div class="stats">
         ${stat(c.total, 'Repositories', 'repo', 'muted', 'all')}
@@ -702,12 +714,9 @@ const VIEWS = {
         ${stat(c.behind, 'Behind remote', 'arrowDown', c.behind ? 'info' : 'muted', 'behind')}
         ${stat(c.ahead, 'Unpushed', 'arrowUp', c.ahead ? 'info' : 'muted', 'ahead')}
       </div>
-      ${favorites.length ? `<div class="section-head"><h2>Favorites</h2><span class="muted">The repositories you pinned</span></div><div class="cards">${favorites.map(card).join('')}</div>` : ''}
-      <div class="section-head"><h2>Needs attention</h2><span class="muted">${attention.length ? 'Open one for its suggested fixes' : ''}</span></div>
+      <div class="section-head"><span class="muted">${attention.length ? 'Open one for its suggested fixes' : ''}</span></div>
       ${attention.length ? `<div class="cards">${attention.map(card).join('')}</div>`
-        : `<div class="panel" style="display:flex;gap:12px;align-items:center">${badge(HEALTH.clean, 'All clean')}<span class="muted">Every repository is committed, pushed and up to date with what was last fetched.</span></div>`}
-      <div class="section-head"><h2>Recently active</h2><span class="muted">By last commit</span></div>
-      <div class="cards">${recent.map(card).join('')}</div>`;
+        : `<div class="panel" style="display:flex;gap:12px;align-items:center">${badge(HEALTH.clean, 'All clean')}<span class="muted">Every repository is committed, pushed and up to date with what was last fetched.</span></div>`}`;
   },
 
   repos() {
@@ -1042,7 +1051,7 @@ function card(repo) {
       </div>
       <div class="meta">${statusSummary(s)}</div>
       ${activity}
-      <div class="card-actions">${openButton(repo)}${commitsButton(repo)}${webButton(repo)}</div>
+      <div class="card-actions">${openButton(repo)}${commitsButton(repo)}${webButton(repo)}${submoduleButton(repo, s)}</div>
       ${job ? '<div class="progress"></div>' : ''}
     </article>`;
 }
@@ -1159,11 +1168,12 @@ function renderDrawer() {
       <div style="flex:1;min-width:0">
         <h2 class="truncate">${repoName(repo)}</h2>
         <div class="mono muted truncate" title="${esc(repo.path)}">${esc(repo.path)}</div>
-        <div class="meta" style="margin-top:8px">${badge(meta)}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
+        <div class="meta" style="margin-top:8px">${badge(meta)}${repo.submodule ? submoduleBadge(repo.submodule) : ''}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
       </div>
-      ${favStar(repo)}
+      ${repo.submodule ? '' : favStar(repo)}
       <button class="btn ghost icon-only" data-action="close-drawer" title="Close (Esc)">${icon('close')}</button>
     </div>
+    ${repo.submodule ? submoduleBanner(repo) : ''}
     <div class="drawer-body">
       <div class="details-col">
       ${entry && entry.fixes.length ? `<section><h3>Suggested</h3><div class="card-actions">${fixButtons(repo, entry, 9)}</div></section>` : ''}
@@ -1177,14 +1187,19 @@ function renderDrawer() {
         ${action('commit', 'commit', 'Commit…')}
         ${action('git', 'archive', 'Stash', 'data-op="stash"')}
       </div></section>`}
-      <section><h3>Repository</h3><div class="card-actions">
+      ${repo.submodule ? `<section><h3>Submodule</h3><div class="card-actions">
+        ${repo.submodule.state === 'moved' || repo.submodule.state === 'uninitialized' ? `<button class="btn" data-action="submodule" data-op="update" data-repo="${esc(repo.parent.id)}" data-path="${esc(repo.submodule.path)}">${icon('arrowDown')}${repo.submodule.state === 'uninitialized' ? 'Clone' : 'Reset to recorded'}</button>` : ''}
+        <button class="btn" data-action="submodule-add" data-path="${esc(repo.path)}" title="Track it as its own repository">${icon('plus')}Add to DevPanel</button>
+        <button class="btn" data-action="copy" data-text="${esc(repo.path)}">${icon('copy')}Copy path</button>
+      </div></section>` : `<section><h3>Repository</h3><div class="card-actions">
         <button class="btn" data-action="edit" data-repo="${esc(repo.id)}">${icon('edit')}Edit…</button>
         <button class="btn" data-action="copy" data-text="${esc(repo.path)}">${icon('copy')}Copy path</button>
         <button class="btn danger" data-action="remove" data-repo="${esc(repo.id)}">${icon('trash')}Remove</button>
-      </div></section>
+      </div></section>`}
       </div>
       <div class="details-col">
       <section><h3>Status</h3>${details}</section>
+      ${s && s.submodules && s.submodules.length ? submodulesSection(repo, s) : ''}
       ${entry?.justfile ? recipesSection(repo, job) : ''}
       ${s && s.files && s.files.length ? `<section><h3>Changes</h3>${changeList(s)}</section>` : ''}
       ${jobs.length ? `<section><h3>Recent activity</h3><div class="jobs">${jobs.map(jobView).join('')}</div></section>` : ''}
@@ -1198,6 +1213,82 @@ function renderDrawer() {
   });
   const refocus = focusKey && drawer.querySelector(focusKey);
   if (refocus) { refocus.focus(); if (caret) refocus.setSelectionRange(...caret); }
+}
+
+// A submodule's pointer state, from git submodule status plus its own tree.
+const SUBMODULE_STATE = {
+  clean: ['at recorded', 'ok', 'Checked out at the commit the parent records'],
+  moved: ['pointer moved', 'warn', 'Checked out commit differs from the one the parent records'],
+  modified: ['modified', 'warn', 'Has uncommitted changes inside'],
+  uninitialized: ['not cloned', 'muted', 'Recorded by the parent but not cloned yet'],
+  conflict: ['conflict', 'danger', 'The recorded pointer is in a merge conflict'],
+};
+const subState = (m) => SUBMODULE_STATE[m.state] || SUBMODULE_STATE.clean;
+const subOff = (m) => m.state !== 'clean';
+function submoduleBadge(m) {
+  const [label, tone, hint] = subState(m);
+  return `<span class="badge tone-${tone}" title="${esc(hint)}">${esc(label)}</span>`;
+}
+
+// Every submodule under a repository, nested ones included, depth first.
+// A nested submodule's list comes from its own status.
+function submoduleTree(repo, depth = 0) {
+  const subs = state.statuses.get(repo.id)?.status?.submodules || [];
+  return subs.flatMap((m) => {
+    const child = repoById(subId(repo, m));
+    return [{ m, id: subId(repo, m), depth }, ...(child ? submoduleTree(child, depth + 1) : [])];
+  });
+}
+
+// The card's submodules button; its list opens as a menu, so cards keep one size.
+function submoduleButton(repo, s) {
+  if (!(s?.submodules || []).length) return '';
+  const tree = submoduleTree(repo);
+  const off = tree.filter((t) => subOff(t.m)).length;
+  return `<button class="btn sm ghost sub-button" data-action="submodule-menu" data-repo="${esc(repo.id)}"
+      title="${plural(tree.length, 'submodule', 'submodules')}${off ? `, ${off} need attention` : ''}">${icon('layers')}${tree.length}${off ? `<span class="sub-off-count">${off}</span>` : ''}${icon('chevronDown')}</button>`;
+}
+
+function submoduleRowHtml(t) {
+  const [label, tone, hint] = subState(t.m);
+  return `<span class="dot tone-${tone}" title="${esc(hint)}"></span><span class="mono truncate sub-path">${esc(t.m.path)}</span>
+    ${t.m.branch ? `<span class="chip">${icon('branch')}${esc(t.m.branch)}</span>` : ''}${t.m.changes ? `<span class="counter changes">${icon('edit')}${t.m.changes}</span>` : ''}
+    <span class="sub-state tone-${tone}">${esc(label)}</span>`;
+}
+
+function submoduleMenu(anchor, repoId) {
+  const tree = submoduleTree(repoById(repoId));
+  showMenu(anchor, [
+    { label: 'Submodules' },
+    ...tree.map((t) => ({ html: submoduleRowHtml(t), depth: t.depth, action: () => { closeDrawer(); state.selected = t.id; render(); } })),
+  ]);
+}
+
+// Top of a submodule's details: whose submodule it is, and its pointer.
+function submoduleBanner(repo) {
+  const m = repo.submodule;
+  const pointer = m.state === 'moved' && m.checked_out
+    ? `records <span class="mono">${esc(m.recorded.slice(0, 7))}</span>, checked out <span class="mono">${esc(m.checked_out.slice(0, 7))}</span>`
+    : `records <span class="mono">${esc((m.recorded || '').slice(0, 7))}</span>`;
+  return `<div class="sub-banner">${icon('layers')}
+    <span>Submodule of ${crumbs(repo.parent)} at <span class="mono">${esc(m.path)}</span> · ${pointer}</span>
+    <span class="spacer"></span>
+    <button class="btn sm ghost" data-action="select" data-repo="${esc(repo.parent.id)}">${icon('arrowUp')}Open ${esc(repo.parent.name)}</button></div>`;
+}
+
+// "dev-suite › commits": every ancestor, each a link to its details.
+function crumbs(repo) {
+  const own = `<button class="link" data-action="select" data-repo="${esc(repo.id)}">${esc(repo.name)}</button>`;
+  return repo.parent ? `${crumbs(repo.parent)} › ${own}` : own;
+}
+
+// The parent's details list its submodules the same way the card does, open.
+function submodulesSection(repo, s) {
+  const any = s.submodules.some((m) => m.state === 'moved' || m.state === 'uninitialized');
+  const rows = submoduleTree(repo).map((t) => `<li data-action="select" data-repo="${esc(t.id)}" style="padding-left:${8 + 18 * t.depth}px" title="Open ${esc(t.m.path)}">${submoduleRowHtml(t)}${icon('chevronRight')}</li>`).join('');
+  return `<section><h3>Submodules</h3><ul class="files sub-rows">${rows}</ul>
+    ${any ? `<div class="card-actions" style="margin-top:8px"><button class="btn sm" data-action="submodule" data-op="update-all" data-repo="${esc(repo.id)}" title="git submodule update --init --recursive">${icon('sync')}Update all to recorded</button></div>` : ''}
+  </section>`;
 }
 
 function changeList(s) {
@@ -1349,6 +1440,7 @@ function showMenu(anchor, items) {
   root.innerHTML = `<div class="menu" role="menu">${items.map((item) => {
     if (item === '-') return '<hr>';
     if (item.label && !item.action) return `<div class="menu-label">${esc(item.label)}</div>`;
+    if (item.html) return `<button class="rich" style="padding-left:${10 + 16 * (item.depth || 0)}px" data-index="${items.indexOf(item)}">${item.html}</button>`;
     return `<button class="${item.danger ? 'danger' : ''}" data-index="${items.indexOf(item)}">${icon(item.icon)}${esc(item.text)}</button>`;
   }).join('')}</div>`;
   const menu = root.firstElementChild;
@@ -1773,6 +1865,9 @@ const ACTIONS = {
     bridge.send({ type: 'fix', repo: el.dataset.repo, fix: el.dataset.fix });
   },
   git: (el) => bridge.send({ type: el.dataset.op, repo: el.dataset.repo }),
+  'submodule-menu': (el) => submoduleMenu(el, el.dataset.repo),
+  submodule: (el) => bridge.send({ type: 'submodule', repo: el.dataset.repo, op: el.dataset.op, path: el.dataset.path || null }),
+  'submodule-add': (el) => bridge.send({ type: 'add-existing', path: el.dataset.path }),
   commit: (el) => commitModal(el.dataset.repo),
   edit: (el) => editModal(el.dataset.repo),
   remove: (el) => removeModal(el.dataset.repo),
