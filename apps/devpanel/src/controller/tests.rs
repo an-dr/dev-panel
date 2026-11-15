@@ -136,11 +136,14 @@ fn a_job_streams_output_then_reports_its_outcome() {
     controller.handle(Action::AddExisting { path: repo.to_string_lossy().into_owned() });
     let id = RepoId("r1".into());
 
-    controller.handle(Action::Run { repo: id.clone(), command: "echo hello".into(), title: None });
+    controller.job(Some(id.clone()), "echo".into(), Afterwards::Status, Runner::OwnThread, |_, out| {
+        out.line("hello");
+        Ok(())
+    });
     let events = wait_for(&controller, |e| matches!(e, Event::Job { state: JobState::Succeeded, .. }));
     assert!(events.iter().any(|e| matches!(e, Event::Log { line, .. } if line == "hello")));
 
-    controller.handle(Action::Run { repo: id, command: "exit 3".into(), title: None });
+    controller.job(Some(id), "fail".into(), Afterwards::Status, Runner::OwnThread, |_, _| Err(HubError::Command("exit 3".into())));
     let events = wait_for(&controller, |e| matches!(e, Event::Job { state: JobState::Failed, .. }));
     assert!(matches!(events.last(), Some(Event::Job { error: Some(_), .. })));
 }
@@ -153,10 +156,12 @@ fn a_second_job_on_a_busy_repository_is_refused() {
     let controller = controller(root.path());
     controller.handle(Action::AddExisting { path: repo.to_string_lossy().into_owned() });
     let id = RepoId("r1".into());
-    let slow = if cfg!(windows) { "ping -n 2 127.0.0.1 > nul" } else { "sleep 1" };
 
-    controller.handle(Action::Run { repo: id.clone(), command: slow.into(), title: None });
-    controller.handle(Action::Run { repo: id, command: "echo second".into(), title: None });
+    controller.job(Some(id.clone()), "slow".into(), Afterwards::Status, Runner::OwnThread, |_, _| {
+        std::thread::sleep(Duration::from_secs(1));
+        Ok(())
+    });
+    controller.job(Some(id), "second".into(), Afterwards::Status, Runner::OwnThread, |_, _| Ok(()));
     let events = wait_for(&controller, |e| matches!(e, Event::Job { state: JobState::Succeeded, .. }));
     let started = events.iter().filter(|e| matches!(e, Event::Job { state: JobState::Running, .. })).count();
     assert_eq!(started, 1);
@@ -164,17 +169,29 @@ fn a_second_job_on_a_busy_repository_is_refused() {
 }
 
 #[test]
-fn install_recipes_are_answered_to_the_request() {
+fn a_repository_without_a_justfile_answers_not_found() {
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().join("project");
     init_repo(&repo);
-    std::fs::write(repo.join("Cargo.toml"), "").unwrap();
     let controller = controller(root.path());
     controller.handle(Action::AddExisting { path: repo.to_string_lossy().into_owned() });
 
-    controller.handle(Action::InstallRecipes { request: 42, repo: RepoId("r1".into()) });
+    controller.handle(Action::JustRecipes { request: 7, repo: RepoId("r1".into()) });
     let events = wait_for(&controller, |e| matches!(e, Event::Reply { .. }));
     let Some(Event::Reply { request, ok, data, .. }) = events.last() else { unreachable!() };
-    assert_eq!((*request, *ok), (42, true));
-    assert_eq!(data[0]["label"], "cargo install");
+    assert_eq!((*request, *ok), (7, true));
+    assert_eq!(data["found"], false);
+    assert_eq!(data["recipes"], serde_json::json!([]));
+}
+
+#[test]
+fn status_says_whether_the_repository_has_a_justfile() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("project");
+    init_repo(&repo);
+    std::fs::write(repo.join("justfile"), "test:\n    echo ok\n").unwrap();
+    let controller = controller(root.path());
+    controller.handle(Action::AddExisting { path: repo.to_string_lossy().into_owned() });
+    let events = wait_for(&controller, |e| matches!(e, Event::Status { .. }));
+    assert!(matches!(events.last(), Some(Event::Status { justfile: true, .. })));
 }

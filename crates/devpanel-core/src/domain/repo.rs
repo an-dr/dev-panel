@@ -26,9 +26,6 @@ pub struct Repo {
     /// Free-form group shown in the sidebar, e.g. "work" or "tools".
     #[serde(default)]
     pub group: Option<String>,
-    /// Overrides the detected install recipe when set. Run through the shell.
-    #[serde(default)]
-    pub install_command: Option<String>,
     /// Pinned by the user as a main repository; shown first and in Favorites.
     #[serde(default)]
     pub favorite: bool,
@@ -40,6 +37,9 @@ pub struct Repo {
     /// choice to the page, which derives one from the id.
     #[serde(default)]
     pub name_style: Option<NameStyle>,
+    /// Just recipes the user moved under "Other" in the details window.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_recipes: Vec<String>,
     /// When DevPanel last pulled it, or tried to, in seconds since the Unix
     /// epoch; what the background pull measures staleness from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -76,13 +76,13 @@ pub struct RepoExport {
     #[serde(default)]
     pub group: Option<String>,
     #[serde(default)]
-    pub install_command: Option<String>,
-    #[serde(default)]
     pub favorite: bool,
     #[serde(default)]
     pub web_url: Option<String>,
     #[serde(default)]
     pub name_style: Option<NameStyle>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_recipes: Vec<String>,
 }
 
 impl From<&Repo> for RepoExport {
@@ -91,9 +91,9 @@ impl From<&Repo> for RepoExport {
             name: repo.name.clone(),
             remote: repo.remote.clone(),
             group: repo.group.clone(),
-            install_command: repo.install_command.clone(),
             favorite: repo.favorite,
             web_url: repo.web_url.clone(),
+            hidden_recipes: repo.hidden_recipes.clone(),
             name_style: repo.name_style.clone(),
         }
     }
@@ -125,6 +125,14 @@ pub fn repo_name_from_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_install_commands_from_older_versions_are_ignored() {
+        let repo: Repo = serde_json::from_str(r#"{"id":"r1","name":"a","path":"/a","install_command":"make install"}"#).unwrap();
+        assert_eq!(repo.name, "a");
+        let entry: RepoExport = serde_json::from_str(r#"{"name":"a","remote":"https://h/a.git","install_command":"make"}"#).unwrap();
+        assert_eq!(entry.name, "a");
+    }
 
     #[test]
     fn name_from_https_and_ssh_urls() {

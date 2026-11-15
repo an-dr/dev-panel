@@ -92,6 +92,18 @@ const state = {
   sort: load('sort', 'attention'),
   search: '',
   selected: null,
+  /** repo id → `{ loading }`, `{ recipes }` or `{ error }`: the just recipes of the open details, read again each time they open. */
+  recipes: new Map(),
+  /** `repo\nrecipe` → the parameter values typed so far, kept across re-renders. */
+  recipeArgs: new Map(),
+  /** The text in the details window's recipe filter. */
+  recipeFilter: '',
+  /** Whether the Other group of hidden recipes is open. */
+  recipeOtherOpen: false,
+  /** Job ids whose output under a recipe was closed. */
+  recipeLogClosed: new Set(),
+  /** `repo\nrecipe` keys whose output box is enlarged. */
+  recipeLogBig: new Set(),
   expandedJobs: new Set(),
   settingsStale: true,
   github: { login: null, repos: [], loading: false, loaded: false, error: '' },
@@ -144,7 +156,7 @@ bridge.on((message) => {
       break;
     case 'status': {
       // Focus refreshes and the watcher resend statuses that rarely change.
-      const entry = { status: message.status, health: message.health, fixes: message.fixes, web_url: message.web_url };
+      const entry = { status: message.status, health: message.health, fixes: message.fixes, web_url: message.web_url, justfile: message.justfile };
       const known = state.statuses.get(message.repo);
       if (known && JSON.stringify(known) === JSON.stringify(entry)) return RENDER.none;
       state.statuses.set(message.repo, entry);
@@ -1021,7 +1033,7 @@ function card(repo) {
     <article class="card tone-${meta.tone} ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" data-drag-repo="${esc(repo.id)}">
       <div class="card-head">
         <div class="card-title">
-          <div class="name">${repoName(repo)}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}</div>
+          <div class="name">${repoName(repo)}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}${state.statuses.get(repo.id)?.justfile ? '<span class="chip" title="Has a justfile: its recipes are in the details">just</span>' : ''}</div>
           <div class="path mono truncate" title="${esc(repo.path)}">${esc(shortPath(repo.path))}</div>
         </div>
         ${badge(meta, headline)}
@@ -1107,8 +1119,10 @@ function splitArgs(text) {
   return args;
 }
 
-// ---- drawer -----------------------------------------------------------------
+// ---- details ----------------------------------------------------------------
 
+// The details of the selected repository, in a window over most of the page:
+// actions on the left, its state on the right.
 function renderDrawer() {
   const drawer = $('#drawer');
   const repo = state.selected && repoById(state.selected);
@@ -1116,6 +1130,13 @@ function renderDrawer() {
   drawer.setAttribute('aria-hidden', repo ? 'false' : 'true');
   if (!repo) return;
   const scroll = drawer.querySelector('.drawer-body')?.scrollTop || 0;
+  const focused = document.activeElement?.closest?.('#drawer') ? document.activeElement : null;
+  const focusKey = focused?.dataset.key ? `[data-key="${CSS.escape(focused.dataset.key)}"][data-param="${focused.dataset.param}"]`
+    : focused?.dataset.recipeFilter !== undefined ? '[data-recipe-filter]' : null;
+  const caret = focused && 'selectionStart' in focused ? [focused.selectionStart, focused.selectionEnd] : null;
+  // A log box stays where the user scrolled it, or follows new lines when it was at the bottom.
+  const logs = new Map([...drawer.querySelectorAll('[data-log-key]')].map((el) =>
+    [el.dataset.logKey, el.scrollHeight - el.scrollTop - el.clientHeight < 4 ? null : el.scrollTop]));
   const entry = state.statuses.get(repo.id);
   const s = entry?.status;
   const meta = healthOf(repo);
@@ -1133,6 +1154,7 @@ function renderDrawer() {
       <dt>Remote</dt><dd class="mono">${s.remote_url ? esc(s.remote_url) : '<span class="muted">none</span>'}</dd>
     </dl>` : `<p class="muted">${esc(meta.hint)}.${repo.remote ? ' It can be cloned again from its remote.' : ''}</p>`;
   drawer.innerHTML = `
+    <div class="details" role="dialog" aria-modal="true" aria-label="${esc(repo.name)}">
     <div class="drawer-head">
       <div style="flex:1;min-width:0">
         <h2 class="truncate">${repoName(repo)}</h2>
@@ -1143,6 +1165,7 @@ function renderDrawer() {
       <button class="btn ghost icon-only" data-action="close-drawer" title="Close (Esc)">${icon('close')}</button>
     </div>
     <div class="drawer-body">
+      <div class="details-col">
       ${entry && entry.fixes.length ? `<section><h3>Suggested</h3><div class="card-actions">${fixButtons(repo, entry, 9)}</div></section>` : ''}
       <section><h3>Open in</h3>${state.commits && !NOTHING_TO_OPEN.has(entry?.health) ? `<button class="btn primary open-commits" data-action="open-in-commits" data-repo="${esc(repo.id)}">${icon('graph')}Open in Commits</button>` : ''}<div class="tool-list">${usableTools().map((t) =>
         `<button class="btn" data-action="open" data-repo="${esc(repo.id)}" data-tool="${esc(t.id)}">${icon(TOOL_ICON[t.launch.kind] || 'code')}${esc(t.name)}</button>`).join('')}${webUrl(repo) ? `<button class="btn" data-action="open-url" data-url="${esc(webUrl(repo))}" title="${esc(webUrl(repo))}">${icon('globe')}Web page</button>` : ''}</div></section>
@@ -1153,20 +1176,28 @@ function renderDrawer() {
         ${action('git', 'sync', 'Sync', 'data-op="sync"')}
         ${action('commit', 'commit', 'Commit…')}
         ${action('git', 'archive', 'Stash', 'data-op="stash"')}
-      </div></section>
-      <section><h3>Build &amp; install</h3><div class="card-actions">
-        ${action('install', 'package', 'Install…')}${action('run', 'terminal', 'Run command…')}
       </div></section>`}
-      <section><h3>Status</h3>${details}</section>
-      ${s && s.files && s.files.length ? `<section><h3>Changes</h3>${changeList(s)}</section>` : ''}
-      ${jobs.length ? `<section><h3>Recent activity</h3><div class="jobs">${jobs.map(jobView).join('')}</div></section>` : ''}
       <section><h3>Repository</h3><div class="card-actions">
         <button class="btn" data-action="edit" data-repo="${esc(repo.id)}">${icon('edit')}Edit…</button>
         <button class="btn" data-action="copy" data-text="${esc(repo.path)}">${icon('copy')}Copy path</button>
         <button class="btn danger" data-action="remove" data-repo="${esc(repo.id)}">${icon('trash')}Remove</button>
       </div></section>
+      </div>
+      <div class="details-col">
+      <section><h3>Status</h3>${details}</section>
+      ${entry?.justfile ? recipesSection(repo, job) : ''}
+      ${s && s.files && s.files.length ? `<section><h3>Changes</h3>${changeList(s)}</section>` : ''}
+      ${jobs.length ? `<section><h3>Recent activity</h3><div class="jobs">${jobs.map(jobView).join('')}</div></section>` : ''}
+      </div>
+    </div>
     </div>`;
   drawer.querySelector('.drawer-body').scrollTop = scroll;
+  drawer.querySelectorAll('[data-log-key]').forEach((el) => {
+    const kept = logs.get(el.dataset.logKey);
+    el.scrollTop = kept == null ? el.scrollHeight : kept;
+  });
+  const refocus = focusKey && drawer.querySelector(focusKey);
+  if (refocus) { refocus.focus(); if (caret) refocus.setSelectionRange(...caret); }
 }
 
 function changeList(s) {
@@ -1193,8 +1224,120 @@ function webUrl(repo) {
 }
 
 function closeDrawer() {
+  if (state.selected) state.recipes.delete(state.selected);
   state.selected = null;
+  state.recipeFilter = '';
 }
+
+// ---- just recipes -----------------------------------------------------------
+
+/** The Recipes section of the details window; asks the host for the list the first time it is drawn. */
+function recipesSection(repo, job) {
+  const known = state.recipes.get(repo.id);
+  if (!known) loadRecipes(repo.id);
+  let body;
+  if (!known || known.loading) body = '<p class="muted">Reading the justfile…</p>';
+  else if (known.error) body = `<p class="note">${esc(known.error)}</p><p class="muted">Install just from https://github.com/casey/just and make sure it is on PATH.</p>`;
+  else if (!known.recipes.length) body = '<p class="muted">The justfile has no public recipes.</p>';
+  else {
+    const hidden = new Set(repo.hidden_recipes || []);
+    const shown = known.recipes.filter((r) => !hidden.has(r.name));
+    const other = known.recipes.filter((r) => hidden.has(r.name));
+    const filter = known.recipes.length > 8
+      ? `<input class="field recipe-filter" data-recipe-filter placeholder="Filter recipes" value="${esc(state.recipeFilter)}">` : '';
+    const otherGroup = other.length ? `
+      <details class="recipe-other" data-recipe-other ${state.recipeOtherOpen ? 'open' : ''}>
+        <summary>Other (${other.length})</summary>${other.map((r) => recipeRow(repo, r, job, true)).join('')}
+      </details>` : '';
+    body = filter + `<div class="recipes">${shown.map((r) => recipeRow(repo, r, job, false)).join('')}</div>` + otherGroup;
+  }
+  return `<section><h3>Recipes</h3>${body}</section>`;
+}
+
+/** One line per recipe; its latest run's output opens underneath. */
+function recipeRow(repo, recipe, job, hidden) {
+  const key = `${repo.id}\n${recipe.name}`;
+  const values = state.recipeArgs.get(key) || [];
+  const filtered = state.recipeFilter && !recipe.name.includes(state.recipeFilter.trim()) ? ' hidden' : '';
+  const params = recipe.parameters.map((p, i) => `<input class="field mono param" data-param="${i}" data-key="${esc(key)}" data-required="${p.required}"
+      value="${esc(values[i] || '')}" placeholder="${esc(p.name)}${p.variadic ? '…' : ''}${p.required ? '' : '?'}" title="${esc(p.name)}${p.required ? ' (required)' : ' (optional)'}" aria-label="${esc(p.name)}">`).join('');
+  const last = [...state.jobs.values()].reverse().find((j) => j.repo === repo.id && j.title === `just ${recipe.name}`);
+  const log = last && !state.recipeLogClosed.has(last.job) ? recipeLog(last, key) : '';
+  return `
+    <div class="recipe-line" data-recipe-name="${esc(recipe.name)}"${filtered}>
+      <div class="recipe-row">
+        <strong class="mono" title="just ${esc(recipe.name)}">${esc(recipe.name)}</strong>
+        <span class="muted truncate" title="${esc(recipe.doc || '')}">${esc(recipe.doc || '')}</span>
+        ${params}
+        <button class="btn sm ghost" data-action="hide-recipe" data-repo="${esc(repo.id)}" data-recipe="${esc(recipe.name)}" data-hidden="${!hidden}" title="${hidden ? 'Show it among the recipes again' : 'Move it under Other'}">${hidden ? 'Show' : 'Hide'}</button>
+        <button class="btn sm primary icon-only" data-action="just-run" data-repo="${esc(repo.id)}" data-recipe="${esc(recipe.name)}" ${job ? 'disabled' : ''} title="Run just ${esc(recipe.name)}">${icon('play')}</button>
+      </div>${log}
+    </div>`;
+}
+
+function recipeLog(job, key) {
+  const mark = job.state === 'running' ? '<span class="spinner"></span>running' : job.state === 'failed' ? `${icon('alert')}failed` : `${icon('check')}done`;
+  const big = state.recipeLogBig.has(key);
+  const lines = job.lines.length ? job.lines.map(esc).join('\n') : (job.state === 'running' ? '' : 'No output.');
+  return `
+    <div class="recipe-log ${job.state}">
+      <div class="recipe-log-head"><span class="state">${mark}</span>
+        <button class="btn sm ghost" data-action="recipe-log-size" data-key="${esc(key)}">${big ? 'Smaller' : 'Bigger'}</button>
+        <button class="btn sm ghost icon-only" data-action="recipe-log-close" data-job="${job.job}" title="Close the output">${icon('close')}</button>
+      </div>
+      <pre class="recipe-log-body${big ? ' big' : ''}" data-log-key="${esc(key)}">${lines}</pre>
+    </div>`;
+}
+
+async function loadRecipes(repoId) {
+  state.recipes.set(repoId, { loading: true });
+  let value;
+  try {
+    const answer = await bridge.request({ type: 'just-recipes', repo: repoId });
+    value = { recipes: answer.recipes };
+  } catch (error) {
+    value = { error: error.message };
+  }
+  // Closed meanwhile: the next open reads the list again.
+  if (state.recipes.get(repoId)?.loading) state.recipes.set(repoId, value);
+  render();
+}
+
+function runRecipe(el) {
+  const { repo, recipe } = el.dataset;
+  const key = `${repo}\n${recipe}`;
+  const known = state.recipes.get(repo)?.recipes?.find((r) => r.name === recipe);
+  const values = state.recipeArgs.get(key) || [];
+  const missing = known?.parameters.find((p, i) => p.required && !(values[i] || '').trim());
+  if (missing) return toast(`${missing.name} needs a value`, 'error');
+  const args = (known?.parameters || []).map((_, i) => values[i] || '');
+  bridge.send({ type: 'just-run', repo, recipe, args });
+}
+
+document.addEventListener('toggle', (event) => {
+  if (event.target.dataset?.recipeOther !== undefined) state.recipeOtherOpen = event.target.open;
+}, true);
+
+// Typing in a recipe's parameters or the filter keeps the value in state,
+// so a re-render (a status refresh, a job finishing) does not lose it.
+document.addEventListener('input', (event) => {
+  const el = event.target;
+  if (el.dataset.param !== undefined && el.dataset.key) {
+    const values = state.recipeArgs.get(el.dataset.key) || [];
+    values[Number(el.dataset.param)] = el.value;
+    state.recipeArgs.set(el.dataset.key, values);
+  } else if (el.dataset.recipeFilter !== undefined) {
+    state.recipeFilter = el.value;
+    document.querySelectorAll('[data-recipe-name]').forEach((row) => {
+      row.hidden = !!el.value.trim() && !row.dataset.recipeName.includes(el.value.trim());
+    });
+  }
+});
+
+// A press on the dimmed area around the details closes them, as Esc does.
+$('#drawer').addEventListener('mousedown', (event) => {
+  if (event.target.id === 'drawer') { closeDrawer(); render(); }
+});
 
 // ---- menus ------------------------------------------------------------------
 
@@ -1267,8 +1410,6 @@ function repoMenu(anchor, repoId) {
     { text: 'Commit all…', icon: 'commit', action: () => commitModal(repoId) },
     { text: 'Stash changes', icon: 'archive', action: git('stash') },
     '-',
-    { text: 'Install…', icon: 'package', action: () => installModal(repoId) },
-    { text: 'Run command…', icon: 'terminal', action: () => runModal(repoId) },
     { text: 'Refresh status', icon: 'refresh', action: () => bridge.send({ type: 'refresh', repo: repoId }) },
     '-',
     ...manage,
@@ -1421,77 +1562,6 @@ function commitModal(repoId) {
   });
 }
 
-async function installModal(repoId) {
-  const repo = repoById(repoId);
-  let recipes = [];
-  try {
-    recipes = await bridge.request({ type: 'install-recipes', repo: repoId });
-  } catch (error) {
-    return toast(error.message, 'error');
-  }
-  const list = recipes.length
-    ? recipes.map((r, i) => `
-        <div class="recipe">${icon('package')}
-          <div class="what"><strong>${esc(r.label)}</strong><span class="mono truncate" title="${esc(r.command)}">${esc(r.command)}</span></div>
-          <button class="btn sm primary" data-recipe="${i}">${icon('play')}Run</button>
-        </div>`).join('')
-    : '<p class="muted">No install script or build file was recognised in this repository.</p>';
-  const backdrop = modal({
-    title: `Install ${repo.name}`,
-    wide: true,
-    body: `
-      <span class="note">Found in the repository, best match first. Each runs in the repository folder; output appears in its activity.</span>
-      <div>${list}</div>
-      <span class="label">Or run a custom command</span>
-      <input class="field mono" id="m-custom" value="${esc(repo.install_command || '')}" placeholder="e.g. pwsh ./scripts/install.ps1 -Release">
-      <span class="note">Save it as this repository’s install command with Edit… to have it listed first next time.</span>`,
-    actions: [
-      { text: 'Close' },
-      {
-        text: 'Run custom', kind: 'primary', icon: 'play',
-        run: (root) => {
-          const command = value(root, '#m-custom').trim();
-          if (!command) return toast('Enter a command', 'error'), true;
-          bridge.send({ type: 'run', repo: repoId, command, title: `Install ${repo.name}` });
-          openDrawer(repoId);
-          return false;
-        },
-      },
-    ],
-  });
-  backdrop.querySelectorAll('[data-recipe]').forEach((button) => button.addEventListener('click', () => {
-    const recipe = recipes[Number(button.dataset.recipe)];
-    bridge.send({ type: 'run', repo: repoId, command: recipe.command, title: `Install ${repo.name} (${recipe.label})` });
-    $('#modal-root').innerHTML = '';
-    openDrawer(repoId);
-    render();
-  }));
-}
-
-function runModal(repoId) {
-  const repo = repoById(repoId);
-  modal({
-    title: `Run in ${repo.name}`,
-    body: `
-      <span class="label">Command</span>
-      <input class="field mono" id="m-command" placeholder="${state.platform === 'windows' ? 'dir' : 'ls -la'}">
-      <span class="note">Runs through ${state.platform === 'windows' ? 'cmd' : 'sh'} in ${esc(shortPath(repo.path))}. It cannot ask for input; use a terminal tool for interactive programs.</span>`,
-    actions: [
-      { text: 'Cancel' },
-      {
-        text: 'Run', kind: 'primary', icon: 'play',
-        run: (root) => {
-          const command = value(root, '#m-command').trim();
-          if (!command) return true;
-          bridge.send({ type: 'run', repo: repoId, command });
-          openDrawer(repoId);
-          return false;
-        },
-      },
-    ],
-  });
-}
-
 function editModal(repoId) {
   const repo = repoById(repoId);
   const known = groups().map(([g]) => g).filter(Boolean);
@@ -1501,7 +1571,6 @@ function editModal(repoId) {
       <span class="label">Name</span><input class="field" id="m-name" value="${esc(repo.name)}">
       <span class="label">Group</span><input class="field" id="m-group" list="m-groups" value="${esc(repo.group || '')}" placeholder="e.g. work, tools, games">
       <datalist id="m-groups">${known.map((g) => `<option value="${esc(g)}">`).join('')}</datalist>
-      <span class="label">Install command</span><input class="field mono" id="m-install" value="${esc(repo.install_command || '')}" placeholder="Leave empty to use what DevPanel detects">
       <span class="label">Name font</span>
       <div class="field-row name-style">
         <select class="field" id="m-font">${fontOptions(repo)}</select>
@@ -1519,7 +1588,7 @@ function editModal(repoId) {
         run: (root) => {
           bridge.send({
             type: 'edit', repo: repoId,
-            name: value(root, '#m-name'), group: value(root, '#m-group'), install_command: value(root, '#m-install'),
+            name: value(root, '#m-name'), group: value(root, '#m-group'),
               web_url: value(root, '#m-web'),
               name_style: editedStyle(repo, root),
           });
@@ -1687,7 +1756,11 @@ const ACTIONS = {
   'reset-sidebar': () => saveSettings({ sidebar_order: [] }),
   filter: (el) => { state.view = 'repos'; state.favoritesOnly = false; state.filter = el.dataset.filter; },
   layout: (el) => { state.layout = el.dataset.layout; remember('layout', state.layout); },
-  select: (el) => { state.selected = state.selected === el.dataset.repo ? null : el.dataset.repo; },
+  select: (el) => { if (state.selected === el.dataset.repo) closeDrawer(); else { closeDrawer(); state.selected = el.dataset.repo; } },
+  'just-run': (el) => runRecipe(el),
+  'hide-recipe': (el) => bridge.send({ type: 'hide-recipe', repo: el.dataset.repo, recipe: el.dataset.recipe, hidden: el.dataset.hidden === 'true' }),
+  'recipe-log-size': (el) => { const k = el.dataset.key; if (!state.recipeLogBig.delete(k)) state.recipeLogBig.add(k); },
+  'recipe-log-close': (el) => { state.recipeLogClosed.add(Number(el.dataset.job)); },
   'close-drawer': () => closeDrawer(),
   'refresh-all': () => bridge.send({ type: 'refresh' }),
   'fetch-all': () => bridge.send({ type: 'fetch' }),
@@ -1701,8 +1774,6 @@ const ACTIONS = {
   },
   git: (el) => bridge.send({ type: el.dataset.op, repo: el.dataset.repo }),
   commit: (el) => commitModal(el.dataset.repo),
-  install: (el) => installModal(el.dataset.repo),
-  run: (el) => runModal(el.dataset.repo),
   edit: (el) => editModal(el.dataset.repo),
   remove: (el) => removeModal(el.dataset.repo),
   favorite: (el) => toggleFavorite(el.dataset.repo),

@@ -38,6 +38,9 @@ pub trait Git: Send + Sync {
 /// Runs a command line through the platform shell.
 pub trait Shell: Send + Sync {
     fn run(&self, command_line: &str, cwd: &Path, out: &dyn Output) -> HubResult<()>;
+    /// Runs a quick command and returns its stdout; a failure carries the
+    /// command's own error text.
+    fn capture(&self, command_line: &str, cwd: &Path) -> HubResult<String>;
 }
 
 /// Starts a tool for a repository and returns without waiting for it.

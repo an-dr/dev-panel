@@ -139,12 +139,16 @@ impl Launcher for FakeLauncher {
 }
 
 #[derive(Default)]
-struct FakeShell(Mutex<Vec<String>>);
+struct FakeShell(Mutex<Vec<String>>, Mutex<Vec<String>>, Mutex<Option<String>>);
 
 impl Shell for FakeShell {
     fn run(&self, command_line: &str, cwd: &Path, _: &dyn Output) -> HubResult<()> {
         self.0.lock().unwrap().push(format!("{command_line} @ {}", cwd.display()));
         Ok(())
+    }
+    fn capture(&self, command_line: &str, _: &Path) -> HubResult<String> {
+        self.1.lock().unwrap().push(command_line.to_string());
+        self.2.lock().unwrap().clone().ok_or_else(|| HubError::Command("just: command not found".into()))
     }
 }
 
@@ -465,18 +469,47 @@ fn open_falls_back_to_the_first_enabled_tool_when_the_default_is_gone() {
     assert_eq!(*f.launcher.0.lock().unwrap(), [format!("{first_enabled} /home/u/a")]);
 }
 
-#[test]
-fn custom_install_command_comes_first() {
+fn just_fixture(files: &[&str], dump: Option<&str>) -> (Fixture, RepoId) {
     let git = FakeGit::default().with_repo("/home/u/a", None);
-    let fs = FakeFs { files: vec!["install.sh".into()], ..FakeFs::default() };
+    let fs = FakeFs { files: files.iter().map(|s| s.to_string()).collect(), ..FakeFs::default() };
     let f = fixture_with(git, fs, FakeStore::default());
+    *f.shell.2.lock().unwrap() = dump.map(str::to_string);
     let id = f.hub.add_existing(Path::new("/home/u/a")).unwrap().id;
-    let edit = RepoEdit { name: "a".into(), group: None, install_command: Some("just install".into()), ..RepoEdit::default() };
-    f.hub.update_repo(&id, edit).unwrap();
-    let labels: Vec<_> = f.hub.install_recipes(&id).unwrap().into_iter().map(|r| r.label).collect();
-    assert_eq!(labels, ["Custom", "install.sh"]);
-    f.hub.run_command(&id, "just install", &Silent).unwrap();
-    assert_eq!(*f.shell.0.lock().unwrap(), ["just install @ /home/u/a"]);
+    (f, id)
+}
+
+#[test]
+fn a_repository_without_a_justfile_never_calls_just() {
+    let (f, id) = just_fixture(&["README.md"], Some("{}"));
+    assert_eq!(f.hub.just_recipes(&id).unwrap(), None);
+    assert!(f.shell.1.lock().unwrap().is_empty());
+}
+
+#[test]
+fn justfile_recipes_are_read_from_just() {
+    let dump = r#"{"recipes":{
+        "test":{"name":"test","doc":null,"private":false,"parameters":[]},
+        "build":{"name":"build","doc":null,"private":false,"parameters":[]},
+        "setup":{"name":"setup","doc":null,"private":false,"parameters":[]},
+        "install":{"name":"install","doc":null,"private":false,"parameters":[]}}}"#;
+    let (f, id) = just_fixture(&["Justfile"], Some(dump));
+    let recipes = f.hub.just_recipes(&id).unwrap().unwrap();
+    assert_eq!(recipes.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["build", "install", "setup", "test"]);
+    assert_eq!(*f.shell.1.lock().unwrap(), ["just --dump --dump-format json"]);
+}
+
+#[test]
+fn missing_just_is_reported_with_its_own_message() {
+    let (f, id) = just_fixture(&["justfile"], None);
+    assert!(f.hub.just_recipes(&id).unwrap_err().to_string().contains("not found"));
+}
+
+#[test]
+fn a_recipe_runs_with_quoted_arguments() {
+    let (f, id) = just_fixture(&["justfile"], None);
+    f.hub.run_just(&id, "build", &["a b".into(), String::new()], &Silent).unwrap();
+    assert_eq!(*f.shell.0.lock().unwrap(), ["just build 'a b' @ /home/u/a"]);
+    assert!(f.hub.run_just(&id, "x; y", &[], &Silent).is_err());
 }
 
 #[test]
@@ -532,7 +565,6 @@ fn import_clones_each_listed_repository_and_restores_its_marks() {
                 name: "bones".into(),
                 remote: Some("https://x/bones.git".into()),
                 group: Some("engine".into()),
-                install_command: Some("just build".into()),
                 favorite: true,
                 web_url: Some("https://code.example/bones".into()),
                 ..RepoExport::default()
@@ -550,7 +582,6 @@ fn import_clones_each_listed_repository_and_restores_its_marks() {
     let dest = Path::new("/home/u").join("Code").join("bones");
     assert_eq!(repos[0].path, dest);
     assert_eq!(repos[0].group.as_deref(), Some("engine"));
-    assert_eq!(repos[0].install_command.as_deref(), Some("just build"));
     assert!(repos[0].favorite);
     assert_eq!(repos[0].web_url.as_deref(), Some("https://code.example/bones"));
     assert_eq!(f.git.calls(), [format!("clone https://x/bones.git {}", dest.display())]);
@@ -643,4 +674,13 @@ fn a_background_pull_leaves_a_repository_without_upstream_or_with_local_commits_
     set(0);
     f.hub.auto_pull(&a.id, &crate::ports::Silent).unwrap();
     assert!(f.git.calls().iter().any(|c| c == "pull rebase=false /home/u/a"));
+}
+
+#[test]
+fn hidden_recipes_are_kept_sorted_and_can_come_back() {
+    let (f, id) = just_fixture(&["justfile"], None);
+    f.hub.set_recipe_hidden(&id, "lint", true).unwrap();
+    f.hub.set_recipe_hidden(&id, "dist", true).unwrap();
+    assert_eq!(f.hub.set_recipe_hidden(&id, "lint", true).unwrap().hidden_recipes, ["dist", "lint"]);
+    assert_eq!(f.hub.set_recipe_hidden(&id, "dist", false).unwrap().hidden_recipes, ["lint"]);
 }

@@ -73,15 +73,15 @@ A plain pull only fast-forwards. Anything else needs a decision — merge or reb
 
 Remote URLs are remembered from every status read, so a repository that later disappears can still be re-cloned. `origin` is preferred; otherwise the first remote.
 
-## Install recipes
+## Just recipes
 
-"Install" proposes commands from the files in the repository's root and in `scripts/` and `tools/`, in this order:
+A repository with a `justfile` (any capitalisation, or `.justfile`) in its root lists its [just](https://github.com/casey/just) recipes in its details window. They are read with `just --dump --dump-format json`, so each recipe's name, doc comment and parameters come from just itself instead of from parsing text. Private recipes (a leading `_` or the `[private]` attribute) are left out, as `just --list` leaves them out. DevPanel does not guess commands for other build systems: a repository that wants buttons adds a justfile, whose recipes can call make, cargo, npm or anything else.
 
-1. The repository's own install command, if one was saved with Edit.
-2. `install` and `setup` scripts in the root, then `scripts/`, then `tools/`: `.ps1` everywhere (run with `pwsh`), `.sh` on Linux and macOS, `.cmd` or `.bat` on Windows.
-3. Ecosystem defaults: `cargo install --path .`, `npm install`, `pip install -e .` (or `-r requirements.txt`), `go install ./...`, a CMake configure and build, and `make install` outside Windows.
+A parameter is required when it has no default and is not a `*` variadic. The page asks for each parameter, shows whether it is required, and sends the values in order; the host builds the command, `just <recipe> <arguments>`, and quotes every argument for the platform shell, so a value with spaces or shell characters reaches the recipe as one argument. Values left empty after the last filled one are dropped and the recipe's defaults apply; an empty value before a filled one is refused, because just takes arguments by position. On Windows `%name%` inside a value is still expanded by `cmd`. A recipe runs with no terminal attached: anything that waits for input fails instead of hanging.
 
-The repository's author knows best, so their scripts come first. Scripts for the other platform are left out rather than offered and failing. Every recipe runs through the platform shell in the repository folder, with no terminal attached: anything that waits for input fails instead of hanging.
+Each recipe takes one line: its name, its doc comment, an input per parameter and Run. Running it opens a small box under that line with the output of its latest run, which follows new lines, can be made taller to read a long log, and can be closed; Activity keeps every run as before. A recipe can be hidden: it moves into a collapsed "Other" group at the end, from which it can be shown again. The hidden names are stored with the repository in the workspace file and travel with an exported list.
+
+`just` is not bundled. When it is not on `PATH`, or the Justfile does not parse, the window shows just's own message instead. A repository without a Justfile shows nothing extra.
 
 ## Web page
 

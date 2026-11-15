@@ -13,7 +13,7 @@ Everything decided without asking. Each item says what was assumed; tick it, or 
 - [ ] **Automatic fetch is off by default**; status refreshes at start, when the window regains focus, and after every action. "Behind" is as fresh as the last fetch.
 - [ ] **Default clone folder `~/Code`.** Your code lives in `/media/an-dr/LStorage/@Code`; should that be the default?
 - [ ] **Default tools:** VS Code (`code {path}`), Claude Code (`claude` in a terminal, which stays open as a shell afterwards), Commits (`~/.commits/app/commits {path}`), Terminal, File manager. The Open button uses VS Code.
-- [ ] **Install recipes** run without a terminal through `sh -c` / `cmd /C`, in this order: your saved command, repository scripts (`install`/`setup` in root, `scripts/`, `tools/`; `.ps1` with `pwsh -ExecutionPolicy Bypass`), then ecosystem defaults ([domain.md](docs/design/domain.md#install-recipes)). Interactive installers fail rather than hang.
+- [ ] **Only just recipes are run.** DevPanel no longer detects install scripts or ecosystem commands, and has no free-form "Run command"; a repository gets buttons by having a justfile ([domain.md](docs/design/domain.md#just-recipes)).
 - [ ] **One group per repository**, free text. Tags (several per repository) instead?
 - [ ] **License MIT**, matching bones and Commits.
 

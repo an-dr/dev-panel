@@ -2,7 +2,8 @@
 
 mod commits_link;
 mod health;
-mod install;
+mod just;
+mod platform;
 mod repo;
 mod status;
 mod tool;
@@ -11,7 +12,8 @@ mod workspace;
 
 pub use commits_link::{CommitsLink, ResolvedTheme};
 pub use health::{Fix, Health};
-pub use install::{detect_install_recipes, InstallRecipe, Platform};
+pub use just::{is_justfile, just_command, parse_just_dump, JustParam, JustRecipe, JUST_DUMP};
+pub use platform::Platform;
 pub use repo::{repo_name_from_url, NameStyle, Repo, RepoExport, RepoId, RepoList};
 pub use status::{CommitSummary, FileChange, Operation, RepoStatus};
 pub use tool::{Launch, Tool, ToolId};

@@ -80,10 +80,10 @@ mod tests {
             path: "/code/bones".into(),
             remote: Some("https://x".into()),
             group: Some("engine".into()),
-            install_command: None,
             favorite: false,
             web_url: Some("https://code.example/bones".into()),
             name_style: Some(NameStyle { font: "orbitron".into(), weight: 700, italic: true }),
+            hidden_recipes: Vec::new(),
             last_pulled: Some(1_700_000_000),
         });
         store.save(&workspace).unwrap();

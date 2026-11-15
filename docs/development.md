@@ -13,6 +13,7 @@ apps/devpanel/          the application
 crates/devpanel-core/   domain, use cases and ports
 crates/devpanel-infra/  adapters
 vendor/bones/           the engine, as a git submodule
+justfile                 everyday tasks as just recipes
 scripts/                dist.ps1, package-release.ps1, install.ps1, preview.ps1, screenshot.ps1, render-icons.ps1, build-fonts.ps1
 .github/workflows/      CI: build, test and release on every platform
 .cargo/config.toml      the install identity the bones upgrade module and the launcher are built with
@@ -26,11 +27,13 @@ cargo build -p devpanel
 cargo test --workspace
 ```
 
+With [just](https://github.com/casey/just) installed, `just` lists the same tasks as short recipes: `just submodules` (the vendored engine), `build`, `release`, `run`, `test`, `lint`, `preview`, `screenshot`, `dist` and `install`. They only call the commands and scripts on this page, so nothing here depends on just, and DevPanel's details window lists them for this repository.
+
 The first build compiles SDL3 from source, which takes a few minutes. The tests run the real `git` against throwaway repositories, so `git` must be on `PATH`; nothing outside the system temp folder is touched.
 
 | Suite | Covers |
 | --- | --- |
-| `devpanel-core` | Health verdicts, fixes, install detection, every use case against fakes |
+| `devpanel-core` | Health verdicts, fixes, just recipe parsing and quoting, every use case against fakes |
 | `devpanel-infra` | Porcelain parsing, and status, fetch, pull, push, stash and conflicts against real repositories; filesystem scans; the JSON store; the repository watcher against a real commit. Program resolution and terminals are tested in bones' `bones-kernel-launch` |
 | `devpanel` | The protocol's JSON shape; the controller driving real adapters, including job output, failures and the busy guard |
 
@@ -61,7 +64,7 @@ writes `.artifacts/preview/index.html`: the page with `web/dev/mock-host.js` sta
 pwsh scripts/screenshot.ps1 -View settings -Theme dark -Width 1280,900
 ```
 
-renders that preview in headless Chrome or Edge and writes `.artifacts/screenshots/<view>-<theme>-<width>.png`. Below 980 px the sidebar collapses to icons, so check both widths. `-Select <repo id>` plays `devpanel <path>` and opens that repository's drawer.
+renders that preview in headless Chrome or Edge and writes `.artifacts/screenshots/<view>-<theme>-<width>.png`. Below 980 px the sidebar collapses to icons, so check both widths. `-Select <repo id>` plays `devpanel <path>` and opens that repository's details window.
 
 The page is plain JavaScript with no build step and no dependencies, because a panel's page is loaded from a string and cannot rely on the network. `render()` rebuilds the visible view from state. Host batches only schedule it: a batch that changed nothing (a status equal to the one shown) schedules nothing, any other batch renders straight away but at most every 50 ms, and a batch holding only job output at most four times a second. Menus and modals live in their own roots, so a status update never closes one under the user's cursor, and cards play their entrance animation only when their view is entered, not on every rebuild.
 

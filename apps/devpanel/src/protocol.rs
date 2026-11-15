@@ -32,7 +32,6 @@ pub enum Action {
         repo: RepoId,
         name: String,
         group: Option<String>,
-        install_command: Option<String>,
         #[serde(default)]
         web_url: Option<String>,
         /// Absent or `null` hands the choice back to the page.
@@ -41,6 +40,8 @@ pub enum Action {
     },
     /// Pins a repository as a favourite, or clears the mark.
     Favorite { repo: RepoId, favorite: bool },
+    /// Moves a just recipe under "Other" in the details window, or back.
+    HideRecipe { repo: RepoId, recipe: String, hidden: bool },
     /// Moves a repository into a group, or out of every group when absent.
     SetGroup { repo: RepoId, group: Option<String> },
     /// Writes a portable repository list into `folder`.
@@ -48,11 +49,12 @@ pub enum Action {
     /// Reads a repository list from `folder` and clones every repository it
     /// lists into `dest` (the configured clone folder when absent).
     Import { folder: String, dest: Option<String> },
-    InstallRecipes { request: u64, repo: RepoId },
-    /// Runs a shell command in the repository, e.g. an install recipe.
-    Run { repo: RepoId, command: String, title: Option<String> },
     Github { request: u64, action: String },
     GitConfig { request: u64, values: Option<serde_json::Value> },
+    /// Lists the repository's just recipes; answered with `{found, recipes}`.
+    JustRecipes { request: u64, repo: RepoId },
+    /// Runs `just <recipe> <args…>` in the repository.
+    JustRun { repo: RepoId, recipe: String, args: Vec<String> },
     SaveSettings { settings: Settings },
     SaveTools { tools: Vec<Tool> },
     PickFolder { request: u64 },
@@ -108,12 +110,14 @@ pub enum Event {
     /// `available`: the tools whose program is installed; the page offers
     /// only those that are also enabled.
     Workspace { workspace: Workspace, platform: &'static str, version: &'static str, commits: bool, available: Vec<ToolId> },
-    Status { repo: RepoId, status: RepoStatus, health: Health, fixes: Vec<Fix>, web_url: Option<String> },
+    /// `justfile`: whether the repository has a Justfile, so the page can
+    /// offer its recipes.
+    Status { repo: RepoId, status: RepoStatus, health: Health, fixes: Vec<Fix>, web_url: Option<String>, justfile: bool },
     Job { job: u64, repo: Option<RepoId>, title: String, state: JobState, error: Option<String> },
     Log { job: u64, line: String },
     Reply { request: u64, ok: bool, data: serde_json::Value, error: Option<String> },
     Toast { level: &'static str, message: String },
-    /// Select this repository and open its drawer: the result of
+    /// Select this repository and open its details window: the result of
     /// `devpanel <path>`, at startup or from a later launch.
     Select { repo: RepoId },
 }
@@ -129,11 +133,11 @@ impl Event {
 
     /// `remote` is the URL DevPanel remembers for the repository, used for
     /// its web page when git reports no remote.
-    pub fn status(repo: RepoId, status: RepoStatus, remote: Option<&str>) -> Self {
+    pub fn status(repo: RepoId, status: RepoStatus, remote: Option<&str>, justfile: bool) -> Self {
         let health = Health::of(&status);
         let fixes = Health::fixes(&status, remote.is_some());
         let web_url = status.remote_url.as_deref().or(remote).and_then(web_url_from_remote);
-        Event::Status { repo, status, health, fixes, web_url }
+        Event::Status { repo, status, health, fixes, web_url, justfile }
     }
 }
 

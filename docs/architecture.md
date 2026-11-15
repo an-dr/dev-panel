@@ -14,7 +14,7 @@ graph TD
     end
     subgraph core["crates/devpanel-core — no I/O"]
         Hub["Hub<br/>use cases"]
-        Domain["domain<br/>Repo · RepoStatus · Health · Tool · install recipes"]
+        Domain["domain<br/>Repo · RepoStatus · Health · Tool · just recipes"]
         Ports["ports<br/>Git · Shell · Launcher · FileSystem · Store · RepoWatch · RepoSource"]
     end
     subgraph infra["crates/devpanel-infra — adapters"]
@@ -71,7 +71,7 @@ The controller keeps one `RepoWatch` watch per tracked repository, matched to th
 
 ## One window
 
-`main` claims the single instance before the engine opens a window, and an `--install` never claims it. When the claim itself fails, DevPanel starts as a window of its own. A later `devpanel <folder>` hands its arguments to the running process and exits; bones raises the window and publishes the handoff as `instance/launched`, which `dashboard.rs` passes to the controller. The startup folder takes the same path once the page is ready: `Hub::add_or_scan` tracks it, and a `select` event opens the first repository's drawer.
+`main` claims the single instance before the engine opens a window, and an `--install` never claims it. When the claim itself fails, DevPanel starts as a window of its own. A later `devpanel <folder>` hands its arguments to the running process and exits; bones raises the window and publishes the handoff as `instance/launched`, which `dashboard.rs` passes to the controller. The startup folder takes the same path once the page is ready: `Hub::add_or_scan` tracks it, and a `select` event opens the first repository's details window.
 
 ## An action, end to end
 
@@ -100,6 +100,8 @@ sequenceDiagram
     Web-->>Page: bones-message event
 ```
 
+A job's output reaches the page line by line, split at newlines and at the carriage returns progress bars redraw with, and with terminal escape sequences (colours, titles) removed, since pwsh, cargo and just write them even into a pipe.
+
 The frame thread never waits on git. The controller queues events on a channel from any thread; on every `core/tick` the dashboard drains them and sends one JSON batch to the page.
 
 ## Threads
@@ -109,7 +111,7 @@ The frame thread never waits on git. The controller queues events on a channel f
 | Page messages, quick use cases (add, edit, open a tool, list recipes) | frame thread | They finish in milliseconds |
 | Status reads | a pool of 4 | Refreshing fifty repositories must not start fifty `git` processes at once |
 | "Fetch all" | a pool of 4 | Same, for the network |
-| Clone, pull, push, sync, commit, stash, install, run | one thread each | Few, possibly long, and must not queue behind each other |
+| Clone, pull, push, sync, commit, stash, just recipes | one thread each | Few, possibly long, and must not queue behind each other |
 
 Two jobs never run in the same repository at once: the second is refused, since two `git` processes in one working tree only fight over its lock. The workspace sits behind one mutex that is never held while a command runs.
 
