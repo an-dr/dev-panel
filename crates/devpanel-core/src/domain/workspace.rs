@@ -28,6 +28,18 @@ pub struct Settings {
     /// `start_page`; items it does not name keep their default place after
     /// those it does. Interpreted by the presentation only.
     pub sidebar_order: Vec<String>,
+    /// Whether the Repositories page shows sections per group. Interpreted
+    /// by the presentation only.
+    pub group_repos: bool,
+    /// Whether Favorites is the first section there. Interpreted by the
+    /// presentation only.
+    pub favorites_on_top: bool,
+    /// Sections the user folded shut: `fav`, a group name, or an empty text
+    /// for repositories without a group. Interpreted by the presentation only.
+    pub folded_groups: Vec<String>,
+    /// Repository ids in the user's own order, for the manual sort; ids it
+    /// does not name follow by name. Interpreted by the presentation only.
+    pub repo_order: Vec<String>,
     /// Newly tracked repositories get the plain name style instead of one the
     /// page picks, for a user who styles each repository by hand.
     pub plain_names_for_new_repos: bool,
@@ -56,6 +68,10 @@ impl Default for Settings {
             theme: "system".into(),
             start_page: "last".into(),
             sidebar_order: Vec::new(),
+            group_repos: true,
+            favorites_on_top: true,
+            folded_groups: Vec::new(),
+            repo_order: Vec::new(),
             plain_names_for_new_repos: false,
             density: "comfortable".into(),
             tool_defaults: TOOL_DEFAULTS,

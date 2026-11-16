@@ -45,12 +45,12 @@ Your repositories, tools and settings live in one JSON file — `~/.config/devpa
 ## Using it
 
 - **Add repository** (Ctrl+N) — clone, add a folder, or scan a folder.
-- **Repositories** is the main page. **Needs attention** shows the totals and every repository that needs attention; its suggested fixes sit in the details window.
+- **Repositories** is the main page, with a section per group and Favorites on top; both can be turned off. **Needs attention** lists every repository that needs a fix, and its coloured totals are tabs that narrow the list to uncommitted, behind or unpushed ones.
 - **Submodules** of a repository open from the button on its card, nested ones included, each in the same details window with its parent shown; it says whether a submodule sits at the commit its parent records, and resets or clones it there.
 - **Names** appear in pixel, cyber, tech and chip display fonts, picked per repository; Edit… changes the font, weight and italic.
-- **Favorite** a repository with the star on its card to pin the ones you work with most — they sort first and have their own Favorites page.
+- **Favorite** a repository with the star on its card to pin the ones you work with most — they sit in the Favorites section on top, keep their own group, and have their own Favorites page.
 - Click a card to open its details in a window over the page: suggested fixes, changed files, every git action, tools, just recipes, recent output.
-- **Drag** a card onto Favorites or a group in the sidebar to put it there, and drag sidebar items to reorder them. Settings → **Start on** picks the page DevPanel opens on: the one you were on, or any page or group.
+- **Drag** a card to another place or another group's section to move it there, which switches to the manual sort; the A–Z button on a section sorts it by name. A card dragged into Favorites becomes a favorite, and a favorite can be reordered but not dragged out — its star removes it. Dropping on Favorites or a group in the sidebar works too, and sidebar items drag to reorder. Settings → **Start on** picks the page DevPanel opens on: the one you were on, or any page or group.
 - **Activity** keeps the output of everything DevPanel ran.
 - **Accounts** uses GitHub CLI to sign in through your browser and browse and clone accessible GitHub repositories. Install `gh` first; DevPanel does not store its credentials.
 - **Settings → Git** edits common global Git settings, including your commit identity, default branch, pull and push behavior, editor, line endings, and commit signing. Repository settings may override them.

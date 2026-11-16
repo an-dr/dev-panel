@@ -387,6 +387,20 @@ fn settings_written_before_the_page_options_still_load() {
     let settings: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
     assert_eq!(settings.start_page, "last");
     assert!(settings.sidebar_order.is_empty());
+    // The group options default to what the page shows when nothing was chosen.
+    assert!(settings.group_repos && settings.favorites_on_top);
+    assert!(settings.folded_groups.is_empty() && settings.repo_order.is_empty());
+}
+
+#[test]
+fn the_repositories_page_layout_survives_a_save() {
+    let f = fixture(FakeGit::default());
+    let mut settings = f.hub.workspace().settings;
+    settings.group_repos = false;
+    settings.folded_groups = vec!["fav".into(), "apps".into()];
+    settings.repo_order = vec!["r2".into(), "r1".into()];
+    f.hub.save_settings(settings.clone()).unwrap();
+    assert_eq!(f.hub.workspace().settings, settings);
 }
 
 #[test]

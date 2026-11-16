@@ -28,7 +28,7 @@
       { id: 'r7', name: 'old-prototype', path: '/home/me/Code/old-prototype', remote: 'https://github.com/an-dr/old.git', group: null, favorite: false },
     ],
     tools,
-    settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, auto_pull_hours: 12, scan_depth: 3, start_page: 'last', sidebar_order: [], theme: 'system' },
+    settings: { clone_root: '~/Code', default_tool: 'vscode', auto_fetch_minutes: 0, auto_pull_hours: 12, scan_depth: 3, start_page: 'last', sidebar_order: [], group_repos: true, favorites_on_top: true, folded_groups: [], repo_order: [], theme: 'system' },
   };
   const base = { files: [], exists: true, is_repo: true, branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0, stashes: 0, operation: null, has_commits: true, remote_url: 'https://github.com/x/y.git' };
   const commit = (subject, hours) => ({ hash: Math.random().toString(16).slice(2, 9), subject, author: 'Andrei', time: now - hours * 3600 });

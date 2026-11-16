@@ -86,10 +86,12 @@ const state = {
   jobs: new Map(),
   view: load('view', 'repos'),
   layout: load('layout', 'grid'),
-  filter: 'all',
+  /** The tab open on Needs attention: a FILTERS id. */
+  attnTab: 'attention',
   group: null,
   favoritesOnly: false,
   sort: load('sort', 'attention'),
+
   search: '',
   selected: null,
   /** repo id → `{ loading }`, `{ recipes }` or `{ error }`: the just recipes of the open details, read again each time they open. */
@@ -129,6 +131,15 @@ function load(key, fallback) {
 function remember(key, value) {
   try { localStorage.setItem(`devpanel.${key}`, value); } catch { /* storage unavailable */ }
 }
+
+// The Repositories page's layout lives in the workspace settings, so it follows the
+// workspace to another machine: sections on or off, Favorites on top, folded
+// sections, and the user's own order of repositories.
+const prefs = () => state.workspace.settings;
+const isGrouped = () => prefs().group_repos !== false;
+const hasFavGroup = () => prefs().favorites_on_top !== false;
+const isFolded = (key) => (prefs().folded_groups || []).includes(key);
+const manualOrder = () => prefs().repo_order || [];
 
 bridge.on((message) => {
   switch (message.type) {
@@ -243,7 +254,6 @@ const FIX = {
 };
 
 const FILTERS = [
-  { id: 'all', label: 'All', test: () => true },
   { id: 'attention', label: 'Attention', test: (h) => h && h !== 'clean' },
   { id: 'dirty', label: 'Uncommitted', test: (h, s) => s && changes(s) > 0 },
   { id: 'behind', label: 'Behind', test: (h, s) => s && s.behind > 0 },
@@ -463,7 +473,7 @@ function pageKey() {
 
 /** Shows the page `key` names; a group that no longer exists falls back to Repositories. */
 function goTo(key) {
-  Object.assign(state, { view: 'repos', group: null, favoritesOnly: false, filter: 'all' });
+  Object.assign(state, { view: 'repos', group: null, favoritesOnly: false });
   if (key === 'favorites') Object.assign(state, { view: 'repos', favoritesOnly: true });
   else if (key.startsWith('group:') && groups().some(([g]) => g && `group:${g}` === key)) Object.assign(state, { view: 'repos', group: key.slice('group:'.length) });
   else if (['overview', 'repos', 'activity', 'settings', 'tools', 'accounts', 'git-config'].includes(key)) state.view = key;
@@ -508,6 +518,40 @@ function dropTarget(x, y) {
   return target.dataset.section === state.drag.section ? target : null;
 }
 
+/**
+ * Where a dragged repository would land on the Repositories page: a section or
+ * group, and the repository it goes before or after. Null off the page's lists.
+ */
+function listDrop(x, y) {
+  const at = document.elementFromPoint(x, y);
+  const zone = at?.closest('[data-group-key]');
+  if (!zone || state.drag?.kind !== 'repo') return null;
+  if (state.drag.fromFavorites && zone.dataset.groupKey !== FAV) return null;
+  let over = at.closest('[data-drag-repo]');
+  const list = at.closest('.cards, .rows');
+  if (!over && list) {
+    // A gap between cards counts as the nearest card.
+    const dist = (el) => { const b = el.getBoundingClientRect(); return Math.hypot(x - (b.left + b.width / 2), y - (b.top + b.height / 2)); };
+    over = [...list.children].filter((el) => el.dataset.dragRepo).sort((p, q) => dist(p) - dist(q))[0] || null;
+  }
+  // The dragged card follows the pointer's spot, so hovering it means "stay".
+  if (over && over.dataset.dragRepo === state.drag.id) return state.drag.spot || null;
+  const neighbour = over && over.dataset.dragRepo !== state.drag.id ? over : null;
+  let after = false;
+  if (neighbour) {
+    if (neighbour.parentElement === press.source.parentElement) {
+      // Within one list the card swaps with what it meets: it ends up on the far
+      // side of it, so the card that slides under the pointer cannot pull it back.
+      after = !!(press.source.compareDocumentPosition(neighbour) & Node.DOCUMENT_POSITION_FOLLOWING);
+    } else {
+      const box = neighbour.getBoundingClientRect();
+      // Cards sit side by side, rows stacked: the long axis decides.
+      after = box.width < box.height * 3 ? x > box.left + box.width / 2 : y > box.top + box.height / 2;
+    }
+  }
+  return { zone, key: zone.dataset.groupKey, neighbour, after };
+}
+
 /** Moves `item` before or after `target`, sliding the items it passes (FLIP). */
 function slide(item, target, after) {
   const siblings = [...item.parentElement.querySelectorAll(`.nav-item[data-section="${item.dataset.section}"]`)];
@@ -521,9 +565,82 @@ function slide(item, target, after) {
   }
 }
 
+const SLIDE_MS = 200;
+
+/** Top-left of every repository card or row by id, in window pixels. */
+function cardRects() {
+  return new Map([...document.querySelectorAll('[data-drag-repo]')].map((el) => {
+    const box = el.getBoundingClientRect();
+    return [el.dataset.dragRepo, { left: box.left, top: box.top }];
+  }));
+}
+
+/**
+ * Runs `change` and slides the cards from where they are seen now to where it
+ * leaves them. Animations still running are cancelled after measuring, so a
+ * new move starts from the cards' visible places and nothing jumps.
+ */
+function moveAnimated(change) {
+  const before = cardRects();
+  document.querySelectorAll('[data-drag-repo]').forEach((el) => el.getAnimations().forEach((a) => a.cancel()));
+  change();
+  return playFlip(before, null);
+}
+
+/** Slides every card from where `before` had it to where it is now (FLIP); `pop` also springs one in. */
+function playFlip(before, pop) {
+  const zoom = density();
+  const played = [];
+  for (const el of document.querySelectorAll('[data-drag-repo]')) {
+    const was = before.get(el.dataset.dragRepo);
+    if (!was) continue;
+    const box = el.getBoundingClientRect();
+    const dx = (was.left - box.left) / zoom;
+    const dy = (was.top - box.top) / zoom;
+    const frames = dx || dy ? [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }] : null;
+    if (el.dataset.dragRepo === pop) {
+      played.push(el.animate([{ transform: `translate(${dx}px, ${dy}px) scale(1.04)`, boxShadow: '0 14px 30px rgba(0,0,0,.28)' }, { transform: 'none', boxShadow: '0 0 0 rgba(0,0,0,0)' }], { duration: 260, easing: 'cubic-bezier(.2,.9,.3,1.2)' }));
+    } else if (frames) {
+      played.push(el.animate(frames, { duration: SLIDE_MS, easing: 'cubic-bezier(.2,.8,.2,1)' }));
+    }
+  }
+  return played;
+}
+
+/** Moves the dragged card to `spot` in the page itself, so the others slide aside as it goes. */
+function previewMove(spot) {
+  const src = press.source;
+  const { neighbour, after, zone } = spot;
+  state.drag.spot = spot;
+  let container = zone.querySelector(':scope > .cards, :scope > .rows');
+  let ref = null;
+  if (neighbour) {
+    container = neighbour.parentElement;
+    ref = after ? neighbour.nextElementSibling : neighbour;
+    if (ref === src || (after ? neighbour.nextElementSibling : neighbour.previousElementSibling) === src) return;
+  } else if (!container) {
+    // An empty section has no list yet; give it one for the card to land in.
+    const empty = zone.querySelector(':scope > .group-empty');
+    if (!empty) return;
+    container = document.createElement('div');
+    container.className = state.layout === 'grid' ? 'cards' : 'rows';
+    empty.replaceWith(container);
+  } else if (src.parentElement === container && container.lastElementChild === src) {
+    return;
+  }
+  const drag = state.drag;
+  const slides = moveAnimated(() => container.insertBefore(src, ref));
+  drag.sliding = slides.length > 0;
+  const land = () => { drag.sliding = false; };
+  Promise.allSettled(slides.map((a) => a.finished)).then(land);
+  setTimeout(land, SLIDE_MS + 80); // a hidden window pauses animations; never stay locked
+}
+
 function beginDrag(event) {
   const { source, drag } = press;
   state.drag = drag;
+  drag.fromFavorites = drag.kind === 'repo' && isSectioned() && !!source.closest(`[data-group-key="${FAV}"]`);
+  document.body.classList.toggle('drag-favorite', drag.fromFavorites);
   document.body.classList.add('is-dragging');
   source.classList.add('dragging');
   // The release still arrives when the pointer leaves the window.
@@ -540,10 +657,17 @@ function beginDrag(event) {
 
 function moveDrag(event) {
   const { drag } = state;
-  if (drag.ghost) drag.ghost.style.transform = `translate(${event.clientX + 12}px, ${event.clientY + 8}px)`;
+  if (drag.ghost) drag.ghost.style.transform = `translate(${event.clientX + 12}px, ${event.clientY + 8}px) rotate(-2deg)`;
   document.querySelectorAll('.drop-target').forEach((el) => el.classList.remove('drop-target'));
   const target = dropTarget(event.clientX, event.clientY);
-  if (!target) return;
+  if (!target) {
+    const spot = drag.kind === 'repo' && listDrop(event.clientX, event.clientY);
+    if (!spot) return;
+    spot.zone.classList.add('drop-target');
+    // Cards still sliding are not where hit-testing sees them; wait for them to land.
+    if (!drag.sliding) previewMove(spot);
+    return;
+  }
   if (drag.kind === 'repo') {
     target.classList.add('drop-target');
   } else if (target !== press.source) {
@@ -555,11 +679,15 @@ function moveDrag(event) {
 function endDrag(event, cancelled) {
   const { drag } = state;
   drag.ghost?.remove();
-  document.body.classList.remove('is-dragging');
+  document.body.classList.remove('is-dragging', 'drag-favorite');
   document.querySelectorAll('.dragging, .drop-target').forEach((el) => el.classList.remove('dragging', 'drop-target'));
   const target = cancelled ? null : dropTarget(event.clientX, event.clientY);
+  const spot = !cancelled && !target && drag.kind === 'repo' ? listDrop(event.clientX, event.clientY) : null;
   state.drag = null;
-  if (drag.kind === 'repo' && target) {
+  const before = drag.kind === 'repo' ? cardRects() : null;
+  if (spot) {
+    moveRepo(drag.id, spot.key, spot.neighbour?.dataset.dragRepo, spot.after);
+  } else if (drag.kind === 'repo' && target) {
     const key = target.dataset.page;
     const repo = repoById(drag.id);
     target.animate([{ transform: 'scale(1.06)' }, { transform: 'none' }], { duration: 220, easing: 'ease-out' });
@@ -578,6 +706,7 @@ function endDrag(event, cancelled) {
     if (JSON.stringify(order) !== JSON.stringify(state.workspace.settings.sidebar_order || [])) saveSettings({ sidebar_order: order });
   }
   render();
+  if (before) playFlip(before, spot ? drag.id : null);
 }
 
 document.addEventListener('pointerdown', (event) => {
@@ -706,44 +835,45 @@ const VIEWS = {
   overview() {
     if (!state.workspace.repos.length) return welcome();
     const c = counts();
-    const stat = (value, label, iconName, tone, filter) => `
-      <div class="stat tone-${tone}" data-action="filter" data-filter="${filter}">
+    const tab = (value, label, iconName, tone, id) => `
+      <button class="stat tone-${tone} ${state.attnTab === id ? 'active' : ''}" role="tab" aria-selected="${state.attnTab === id}" data-action="attn-tab" data-tab="${id}">
         <span class="stat-icon">${icon(iconName)}</span>
         <span class="value">${value}</span><span class="label">${label}</span>
-      </div>`;
+      </button>`;
+    const filter = FILTERS.find((f) => f.id === state.attnTab) || FILTERS[0];
     const attention = sortRepos(state.workspace.repos.filter((r) => {
       const e = state.statuses.get(r.id);
-      return e && e.health !== 'clean';
+      return e && e.health !== 'clean' && filter.test(e.health, e.status);
     }), 'attention');
     return `
-      <div class="stats">
-        ${stat(c.total, 'Repositories', 'repo', 'muted', 'all')}
-        ${stat(c.attention, 'Need attention', 'alert', c.attention ? 'warn' : 'muted', 'attention')}
-        ${stat(c.dirty, 'Uncommitted', 'edit', c.dirty ? 'warn' : 'muted', 'dirty')}
-        ${stat(c.behind, 'Behind remote', 'arrowDown', c.behind ? 'info' : 'muted', 'behind')}
-        ${stat(c.ahead, 'Unpushed', 'arrowUp', c.ahead ? 'info' : 'muted', 'ahead')}
+      <div class="stats" role="tablist">
+        ${tab(c.attention, 'Need attention', 'alert', c.attention ? 'warn' : 'muted', 'attention')}
+        ${tab(c.dirty, 'Uncommitted', 'edit', c.dirty ? 'warn' : 'muted', 'dirty')}
+        ${tab(c.behind, 'Behind remote', 'arrowDown', c.behind ? 'info' : 'muted', 'behind')}
+        ${tab(c.ahead, 'Unpushed', 'arrowUp', c.ahead ? 'info' : 'muted', 'ahead')}
       </div>
-      <div class="section-head"><span class="muted">${attention.length ? 'Open one for its suggested fixes' : ''}</span></div>
       ${attention.length ? `<div class="cards">${attention.map(card).join('')}</div>`
-        : `<div class="panel" style="display:flex;gap:12px;align-items:center">${badge(HEALTH.clean, 'All clean')}<span class="muted">Every repository is committed, pushed and up to date with what was last fetched.</span></div>`}`;
+        : `<div class="panel" style="display:flex;gap:12px;align-items:center">${badge(HEALTH.clean, 'All clean')}<span class="muted">${state.attnTab === 'attention' ? 'Every repository is committed, pushed and up to date with what was last fetched.' : 'Nothing here.'}</span></div>`}`;
   },
 
   repos() {
     if (!state.workspace.repos.length) return welcome();
     const repos = visibleRepos();
-    const segment = FILTERS.map((f) => {
-      const n = state.workspace.repos.filter((r) => inGroup(r) && passes(r, f)).length;
-      return `<button class="${state.filter === f.id ? 'active' : ''}" data-action="filter" data-filter="${f.id}">${f.label}<span class="n">${n}</span></button>`;
-    }).join('');
+    const flat = state.favoritesOnly || state.group !== null || !isGrouped();
+    const list = (items) => (state.layout === 'grid' ? `<div class="cards">${items.map(card).join('')}</div>` : `<div class="rows">${items.map(row).join('')}</div>`);
     const body = !repos.length
-      ? `<div class="empty">${icon('search')}<h3>No repositories match</h3><p>Try another filter or search.</p></div>`
-      : state.layout === 'grid' ? `<div class="cards">${repos.map(card).join('')}</div>` : `<div class="rows">${repos.map(row).join('')}</div>`;
+      ? `<div class="empty">${icon('search')}<h3>No repositories match</h3><p>Try another search.</p></div>`
+      : flat ? `<div class="drop-zone" data-group-key="${state.favoritesOnly ? FAV : state.group ?? ''}">${list(repos)}</div>` : sections(repos).map((g) => groupSection(g, list)).join('');
+    const showGrouping = !state.favoritesOnly && state.group === null;
     return `
       <div class="toolbar">
-        <div class="segmented">${segment}</div>
+        ${showGrouping ? `<div class="segmented">
+          <button class="${isGrouped() ? 'active' : ''}" data-action="grouped" aria-pressed="${isGrouped()}" title="Show repositories in their groups">${icon('layers')}Groups</button>
+          ${isGrouped() ? `<button class="${hasFavGroup() ? 'active' : ''}" data-action="fav-group" aria-pressed="${hasFavGroup()}" title="Show favorites as the first group">${icon('star')}Favorites on top</button>` : ''}
+        </div>` : ''}
         <span class="spacer"></span>
         <select class="select" data-action="sort" aria-label="Sort">
-          ${[['attention', 'Sort: attention first'], ['name', 'Sort: name'], ['recent', 'Sort: recent activity']]
+          ${[['attention', 'Sort: attention first'], ['name', 'Sort: name'], ['recent', 'Sort: recent activity'], ['manual', 'Sort: manual']]
             .map(([v, l]) => `<option value="${v}" ${state.sort === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select>
         <div class="segmented">
@@ -968,32 +1098,104 @@ function welcome() {
 function inGroup(repo) {
   return state.group === null || (repo.group || '') === state.group;
 }
-function passes(repo, filter) {
-  const entry = state.statuses.get(repo.id);
-  return filter.test(entry?.health, entry?.status);
-}
 function visibleRepos() {
-  const filter = FILTERS.find((f) => f.id === state.filter) || FILTERS[0];
   const q = state.search.trim().toLowerCase();
-  const repos = state.workspace.repos.filter((repo) => (!state.favoritesOnly || repo.favorite) && inGroup(repo) && passes(repo, filter) && (!q || [
+  const repos = state.workspace.repos.filter((repo) => (!state.favoritesOnly || repo.favorite) && inGroup(repo) && (!q || [
     repo.name, repo.path, repo.group, repo.remote, state.statuses.get(repo.id)?.status.branch,
   ].some((v) => v && String(v).toLowerCase().includes(q))));
-  return sortRepos(repos, state.sort, true);
+  return sortRepos(repos, state.sort, !isSectioned());
 }
-// `favFirst` floats pinned repositories to the top of the main list; the
-// overview's own sections (attention, recent) pass it off so their order means
-// only what their heading says.
+const isSectioned = () => isGrouped() && !state.favoritesOnly && state.group === null;
+
+// `favFirst` floats pinned repositories to the top of a flat list; the
+// overview's own list passes it off so its order means only what it says.
 function sortRepos(repos, by, favFirst = false) {
   const time = (r) => state.statuses.get(r.id)?.status.last_commit?.time || 0;
   const rank = (r) => { const e = state.statuses.get(r.id); return e ? HEALTH_ORDER.indexOf(e.health) : 99; };
   const byName = (a, b) => a.name.localeCompare(b.name);
+  const slot = (r) => { const i = manualOrder().indexOf(r.id); return i < 0 ? Infinity : i; };
   const within = {
     name: byName,
     recent: (a, b) => time(b) - time(a) || byName(a, b),
     attention: (a, b) => rank(a) - rank(b) || byName(a, b),
+    manual: (a, b) => (slot(a) === slot(b) ? byName(a, b) : slot(a) - slot(b)),
   }[by] || byName;
   const sorter = favFirst ? (a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || within(a, b) : within;
   return [...repos].sort(sorter);
+}
+
+// ---- groups ---------------------------------------------------------------
+// A repository sits in one section: Favorites when that section is on and the
+// repository is a favorite, otherwise its own group, otherwise Ungrouped.
+// Favorites is a shelf, not a group: a favorite keeps its group underneath, so
+// it can be put in order there but never dragged out of it; the star removes it.
+// Section keys: `fav`, a group name, or '' for Ungrouped.
+
+const FAV = 'fav';
+const sectionKey = (repo) => (hasFavGroup() && repo.favorite ? FAV : repo.group || '');
+
+/** The sections to show for `repos`, in order: Favorites, the groups in the sidebar's order, Ungrouped. */
+function sections(repos) {
+  const by = new Map();
+  for (const repo of repos) {
+    const key = sectionKey(repo);
+    by.set(key, [...(by.get(key) || []), repo]);
+  }
+  const named = ordered([...by.keys()].filter((k) => k && k !== FAV).sort((x, y) => x.localeCompare(y)).map((g) => `group:${g}`)).map((k) => k.slice('group:'.length));
+  // Favorites and Ungrouped stay even when empty, as places to drop into.
+  const keys = [...(hasFavGroup() ? [FAV] : []), ...named, ''];
+  return keys.map((key) => ({ key, repos: by.get(key) || [] }));
+}
+
+function groupSection({ key, repos }, list) {
+  const folded = isFolded(key);
+  const label = key === FAV ? 'Favorites' : key || 'Ungrouped';
+  return `
+    <section class="repo-group ${folded ? 'folded' : ''}" data-group-key="${esc(key)}">
+      <header class="group-head">
+        <button class="group-fold" data-action="group-fold" data-key="${esc(key)}" aria-expanded="${!folded}">
+          ${icon('chevronDown')}${key === FAV ? icon('star') : ''}<span class="group-name">${esc(label)}</span><span class="n">${repos.length}</span>
+        </button>
+        <button class="btn sm ghost icon-only" data-action="group-sort" data-key="${esc(key)}" title="Sort ${esc(label)} by name">${icon('sortAz')}</button>
+      </header>
+      ${folded ? '' : repos.length ? list(repos) : '<div class="group-empty">Drop a repository here</div>'}
+    </section>`;
+}
+
+/** Repositories of section `key` as shown now, in the current sort. */
+function membersOf(key) {
+  const here = (r) => (isSectioned() ? sectionKey(r) === key : true) && (!state.favoritesOnly || r.favorite) && inGroup(r);
+  return sortRepos(state.workspace.repos.filter(here), state.sort, !isSectioned());
+}
+
+/** Writes `ids` as the order of those repositories; the rest keep their places after them. */
+function setOrder(ids) {
+  const known = new Set(state.workspace.repos.map((r) => r.id));
+  saveSettings({ repo_order: [...ids, ...manualOrder().filter((id) => !ids.includes(id) && known.has(id))] });
+  state.sort = 'manual';
+  remember('sort', 'manual');
+}
+
+function sortGroupByName(key) {
+  setOrder(membersOf(key).sort((a, b) => a.name.localeCompare(b.name)).map((r) => r.id));
+}
+
+/** Moves a repository into section `key`, before or after `neighbour` (a repository id), or last. */
+function moveRepo(id, key, neighbour, after) {
+  const repo = repoById(id);
+  if (!repo) return;
+  const members = membersOf(key).map((r) => r.id).filter((m) => m !== id);
+  if (isSectioned()) {
+    if (key === FAV && !repo.favorite) {
+      repo.favorite = true;
+      bridge.send({ type: 'favorite', repo: id, favorite: true });
+    } else if (key !== FAV) {
+      if ((repo.group || '') !== key) { repo.group = key || null; bridge.send({ type: 'set-group', repo: id, group: key }); }
+    }
+  }
+  const at = neighbour ? members.indexOf(neighbour) + (after ? 1 : 0) : members.length;
+  members.splice(Math.max(0, at), 0, id);
+  setOrder(members);
 }
 
 function statusSummary(s) {
@@ -1043,6 +1245,14 @@ function fixButtons(repo, entry, limit) {
     `<button class="btn sm fix tone-${tone === 'ok' ? 'info' : tone}" data-action="fix" data-fix="${fix}" data-repo="${esc(repo.id)}">${icon(FIX[fix].icon)}${FIX[fix].label}</button>`).join('');
 }
 
+// The group chip says where a card belongs; inside that group's own section or
+// page it would only repeat the heading.
+function groupChipShown(repo) {
+  if (!repo.group || state.view !== 'repos') return !!repo.group;
+  if (state.group !== null) return false;
+  return !(isSectioned() && sectionKey(repo) === repo.group);
+}
+
 function card(repo) {
   const entry = state.statuses.get(repo.id);
   const meta = healthOf(repo);
@@ -1059,7 +1269,7 @@ function card(repo) {
     <article class="card tone-${meta.tone} ${state.selected === repo.id ? 'selected' : ''}" data-action="select" data-repo="${esc(repo.id)}" data-drag-repo="${esc(repo.id)}">
       <div class="card-head">
         <div class="card-title">
-          <div class="name">${repoName(repo)}${repo.group ? `<span class="chip group">${esc(repo.group)}</span>` : ''}${state.statuses.get(repo.id)?.justfile ? '<span class="chip" title="Has a justfile: its recipes are in the details">just</span>' : ''}</div>
+          <div class="name">${repoName(repo)}${groupChipShown(repo) ? `<span class="chip group">${esc(repo.group)}</span>` : ''}${state.statuses.get(repo.id)?.justfile ? '<span class="chip" title="Has a justfile: its recipes are in the details">just</span>' : ''}</div>
           <div class="path mono truncate" title="${esc(repo.path)}">${esc(shortPath(repo.path))}</div>
         </div>
         ${badge(meta, headline)}
@@ -1863,8 +2073,12 @@ const ACTIONS = {
   'github-login': () => githubLogin(),
   'github-clone': (el) => { bridge.send({ type: 'clone', url: el.dataset.url, parent: state.workspace.settings.clone_root || null }); toast('Cloning… follow it in Activity'); },
   'reset-sidebar': () => saveSettings({ sidebar_order: [] }),
-  filter: (el) => { state.view = 'repos'; state.favoritesOnly = false; state.filter = el.dataset.filter; },
+  'attn-tab': (el) => { state.attnTab = el.dataset.tab; },
   layout: (el) => { state.layout = el.dataset.layout; remember('layout', state.layout); },
+  grouped: () => saveSettings({ group_repos: !isGrouped() }),
+  'fav-group': () => saveSettings({ favorites_on_top: !hasFavGroup() }),
+  'group-fold': (el) => { const k = el.dataset.key; const open = prefs().folded_groups || []; saveSettings({ folded_groups: open.includes(k) ? open.filter((g) => g !== k) : [...open, k] }); },
+  'group-sort': (el) => sortGroupByName(el.dataset.key),
   select: (el) => { if (state.selected === el.dataset.repo) closeDrawer(); else { closeDrawer(); state.selected = el.dataset.repo; } },
   'just-run': (el) => runRecipe(el),
   'hide-recipe': (el) => bridge.send({ type: 'hide-recipe', repo: el.dataset.repo, recipe: el.dataset.recipe, hidden: el.dataset.hidden === 'true' }),
@@ -1993,7 +2207,7 @@ document.addEventListener('input', (event) => {
 
 $('#search').addEventListener('input', (event) => {
   state.search = event.target.value;
-  if (state.search && state.view !== 'repos') { state.view = 'repos'; state.filter = 'all'; }
+  if (state.search && state.view !== 'repos') { state.view = 'repos'; }
   render();
 });
 

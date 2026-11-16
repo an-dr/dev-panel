@@ -267,6 +267,12 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .stat:not(.tone-muted) { background: var(--tone); border-color: var(--tone); color: var(--on-tone); }
 .stat.tone-info { --tone: var(--info-fill); --on-tone: var(--on-info-fill); }
 .stat:not(.tone-muted):hover { filter: brightness(1.06); }
+/* The tiles are the page's tabs: the open one rings, the rest recede. */
+.stat { position: relative; font: inherit; text-align: left; }
+.stats .stat:not(.active) { opacity: .72; }
+.stats .stat:not(.active):hover { opacity: 1; }
+.stat.active { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--outline-strong); }
+.stats + .cards, .stats + .panel { margin-top: 22px; }
 .stat .stat-icon { display: inline-flex; color: var(--muted); }
 .stat:not(.tone-muted) .stat-icon { color: inherit; }
 .stat .stat-icon .ico { width: 22px; height: 22px; }
@@ -304,8 +310,30 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 }
 .segmented button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-weight: 600; }
 .segmented button .n { font-size: 11px; color: var(--muted); }
+
+/* Groups on the Repositories page */
+.repo-group { margin: 0 0 22px; border-radius: var(--radius); transition: background .12s; }
+.group-head { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
+.group-fold {
+  display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--text);
+  font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; padding: 4px 6px 4px 2px; border-radius: 8px;
+}
+.group-fold:hover { background: var(--surface-2); }
+.group-fold .ico { width: 16px; height: 16px; color: var(--muted); transition: transform .15s var(--ease); }
+.repo-group.folded .group-fold > .ico:first-child { transform: rotate(-90deg); }
+.group-fold .n { font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.group-head .btn { opacity: 0; }
+.repo-group:hover .group-head .btn, .group-head .btn:focus-visible { opacity: 1; }
+.group-empty { padding: 18px; text-align: center; color: var(--muted); border: 2px dashed var(--border); border-radius: var(--radius); font-size: 13px; }
+.repo-group.drop-target, .drop-zone.drop-target { background: var(--accent-soft); }
+/* The card being dragged stays in the list as a faded slot the others move around. */
+.card.dragging, .row.dragging { opacity: .45; animation: none; transition: opacity .15s; }
+.card.dragging:hover { transform: none; }
+.drag-ghost { box-shadow: 0 16px 34px rgba(0,0,0,.3); animation: ghost-in .16s var(--ease); }
+@keyframes ghost-in { from { opacity: 0; scale: .85; } to { opacity: 1; scale: 1; } }
+.repo-group, .drop-zone { transition: background .15s; }
 .select {
-  height: 32px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm);
+  height: 36px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm);
   padding: 0 10px; color: var(--text-2);
 }
 
@@ -575,3 +603,6 @@ textarea.field { height: auto; min-height: 90px; padding: 9px 11px; resize: vert
 .github-repo > div { min-width: 0; overflow-wrap: anywhere; }
 
 .github-repo[hidden] { display: none; }
+body.is-dragging .card:hover, body.is-dragging .row:hover { transform: none; border-color: var(--outline); }
+body.drag-favorite .repo-group:not([data-group-key="fav"]) { opacity: .45; transition: opacity .15s; }
+body.drag-favorite .repo-group:not([data-group-key="fav"]) * { cursor: not-allowed !important; }
